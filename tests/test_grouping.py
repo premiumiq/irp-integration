@@ -109,8 +109,20 @@ class FakeReferenceDataManager:
 
     def __init__(self) -> None:
         self.event_rate_schemes = [
-            {"eventRateSchemeId": 101, "eventRateSchemeName": "Historical"},
-            {"eventRateSchemeId": 102, "eventRateSchemeName": "Stochastic"},
+            {
+                "eventRateSchemeId": 101,
+                "eventRateSchemeName": "Historical",
+                "perilCode": "WS",
+                "modelRegionCode": "NAWS",
+                "modelVersionCode": "11.0",
+            },
+            {
+                "eventRateSchemeId": 102,
+                "eventRateSchemeName": "Stochastic",
+                "perilCode": "WS",
+                "modelRegionCode": "NAWS",
+                "modelVersionCode": "11.0",
+            },
         ]
         self.pet_metadata = [
             {
@@ -533,8 +545,8 @@ def test_treaty_term_change_after_inspection_changes_fingerprint():
     assert client.calls == []
 
 
-def test_conflicting_pure_elt_requires_one_of_the_observed_schemes():
-    """Return both observed choices without selecting one."""
+def test_conflicting_pure_elt_requires_one_applicable_scheme():
+    """Return applicable reference choices without selecting one."""
     manager, _, _ = make_manager(*pure_elt_fixtures(conflicting=True))
 
     result = manager.inspect(analysis_ids=[1, 2])
@@ -542,6 +554,115 @@ def test_conflicting_pure_elt_requires_one_of_the_observed_schemes():
     partition = result.partitions[0]
     assert partition.event_rate_selection_required is True
     assert [option.event_rate_scheme_id for option in partition.event_rate_scheme_options] == [101, 102]
+
+
+def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme():
+    """Match perilCode and modelRegionCode without checking modelVersionCode."""
+    manager, client, reference_data = make_manager(
+        *pure_elt_fixtures(conflicting=True), post=True
+    )
+    reference_data.event_rate_schemes.extend([
+        {
+            "eventRateSchemeId": 103,
+            "eventRateSchemeName": "Applicable but unobserved",
+            "perilCode": "WS",
+            "modelRegionCode": "NAWS",
+            "modelVersionCode": "10.0",
+            "isDefault": True,
+        },
+        {
+            "eventRateSchemeId": 104,
+            "eventRateSchemeName": "Wrong model region",
+            "perilCode": "WS",
+            "modelRegionCode": "EUWS",
+            "modelVersionCode": "11.0",
+        },
+        {
+            "eventRateSchemeId": 105,
+            "eventRateSchemeName": "Wrong peril",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAWS",
+            "modelVersionCode": "11.0",
+        },
+    ])
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    partition = inspection.partitions[0]
+
+    assert partition.event_rate_selection_required is True
+    assert [
+        (option.event_rate_scheme_id, option.label)
+        for option in partition.event_rate_scheme_options
+    ] == [
+        (101, "Historical"),
+        (102, "Stochastic"),
+        (103, "Applicable but unobserved"),
+    ]
+
+    result = manager.submit(
+        analysis_ids=[1, 2],
+        settings=settings(),
+        event_rate_selections=[EventRateSelection(partition.key, 103)],
+        expected_inspection_fingerprint=inspection.fingerprint,
+    )
+
+    assert result.request_body["settings"]["regionPerilSimulationSet"][0][
+        "eventRateSchemeId"
+    ] == 103
+    assert result.request_body == client.calls[-1]["json"]
+
+
+def test_is_default_does_not_select_a_scheme_for_a_conflict():
+    """Require a caller selection even when an applicable scheme is default."""
+    manager, client, reference_data = make_manager(
+        *pure_elt_fixtures(conflicting=True)
+    )
+    reference_data.event_rate_schemes[0]["isDefault"] = True
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[],
+            expected_inspection_fingerprint=inspection.fingerprint,
+        )
+
+    assert inspection.partitions[0].event_rate_selection_required is True
+    assert [problem.code for problem in raised.value.problems] == [
+        "event_rate_selection_missing"
+    ]
+    assert client.calls == []
+
+
+def test_conflicting_partition_rejects_scheme_for_another_model_region():
+    """Reject a reference scheme outside the partition before the grouping POST."""
+    manager, client, reference_data = make_manager(
+        *pure_elt_fixtures(conflicting=True)
+    )
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": 104,
+        "eventRateSchemeName": "Europe Windstorm",
+        "perilCode": "WS",
+        "modelRegionCode": "EUWS",
+        "modelVersionCode": "11.0",
+    })
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[
+                EventRateSelection(inspection.partitions[0].key, 104)
+            ],
+            expected_inspection_fingerprint=inspection.fingerprint,
+        )
+
+    assert [problem.code for problem in raised.value.problems] == [
+        "event_rate_selection_not_offered"
+    ]
+    assert client.calls == []
 
 
 def test_display_name_region_rows_resolve_to_the_detail_codes():
@@ -606,13 +727,14 @@ def test_each_offered_scheme_is_named_from_reference_data():
 
 
 def test_reversing_members_keeps_partition_and_choice_order():
-    """Normalize partitions independently of member order."""
+    """Normalize partitions and the fingerprint independently of member order."""
     manager, _, _ = make_manager(*pure_elt_fixtures(conflicting=True))
 
     forward = manager.inspect(analysis_ids=[1, 2])
     reverse = manager.inspect(analysis_ids=[2, 1])
 
     assert forward.partitions == reverse.partitions
+    assert forward.fingerprint == reverse.fingerprint
 
 
 def test_conflicting_pure_elt_submission_emits_verified_zero_simulation_fields():
@@ -692,16 +814,33 @@ def test_duplicate_event_rate_selection_is_structured():
 
 
 def test_fingerprint_ignores_timestamp_and_display_label():
-    """Exclude inspection time and event-rate display labels from the fingerprint."""
+    """Exclude inspection time and reference-data labels from the fingerprint."""
     details, regions = pure_elt_fixtures(conflicting=True)
-    manager, _, _ = make_manager(details, regions)
+    manager, _, reference_data = make_manager(details, regions)
     first = manager.inspect(analysis_ids=[1, 2])
-    details[1]["eventRateSchemeName"] = "Renamed label"
+    reference_data.event_rate_schemes[0]["eventRateSchemeName"] = "Renamed label"
 
     second = manager.inspect(analysis_ids=[1, 2])
 
     assert first.inspected_at != second.inspected_at
+    assert first.partitions != second.partitions
     assert first.fingerprint == second.fingerprint
+
+
+def test_event_rate_option_ids_change_the_fingerprint():
+    """Include offered event-rate scheme IDs in the fingerprint."""
+    manager, _, reference_data = make_manager(*pure_elt_fixtures(conflicting=True))
+    first = manager.inspect(analysis_ids=[1, 2])
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": 103,
+        "eventRateSchemeName": "New applicable scheme",
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+    })
+
+    second = manager.inspect(analysis_ids=[1, 2])
+
+    assert first.fingerprint != second.fingerprint
 
 
 def test_changed_scheme_rejects_submission_before_post():
@@ -914,6 +1053,32 @@ def test_risk_modeler_simulation_choices_are_independent_of_event_rate_scheme():
     regions[2][0].update({"engineVersion": "RL25", "peril": "EQ"})
     regions[3][2]["engineVersion"] = "RL25"
     manager, client, reference_data = make_manager(details, regions, post=True)
+    reference_data.event_rate_schemes = [
+        {
+            "eventRateSchemeId": 163,
+            "eventRateSchemeName": "North America Earthquake Stochastic",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAEQ",
+        },
+        {
+            "eventRateSchemeId": 164,
+            "eventRateSchemeName": "North America Earthquake Long Term",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAEQ",
+        },
+        {
+            "eventRateSchemeId": 738,
+            "eventRateSchemeName": "North Atlantic Hurricane Historical",
+            "perilCode": "WS",
+            "modelRegionCode": "NAWS",
+        },
+        {
+            "eventRateSchemeId": 739,
+            "eventRateSchemeName": "North Atlantic Hurricane Stochastic",
+            "perilCode": "WS",
+            "modelRegionCode": "NAWS",
+        },
+    ]
     reference_data.simulation_sets = [
         {
             "id": 87,
@@ -1216,6 +1381,32 @@ def test_multiple_simulation_sets_are_caller_options():
     assert [option.simulation_set_id for option in partition.simulation_set_options] == [
         1001,
         1002,
+    ]
+
+
+def test_simulation_set_requires_an_active_event_rate_scheme_relationship():
+    """Exclude simulation sets whose eventRateSchemeId has no active scheme."""
+    manager, _, reference_data = make_manager(*mixed_fixtures())
+    reference_data.simulation_sets.append({
+        "id": 1009,
+        "eventRateSchemeId": 909,
+        "name": "Climate-conditioned simulation",
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "11.0",
+        "defaultPeriods": 100000,
+        "peqtSource": "SYSTEM",
+    })
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    partition = next(
+        partition
+        for partition in inspection.partitions
+        if partition.key == GroupingPartitionKey("WS", "NA", "11.0")
+    )
+    assert [option.simulation_set_id for option in partition.simulation_set_options] == [
+        1001
     ]
 
 

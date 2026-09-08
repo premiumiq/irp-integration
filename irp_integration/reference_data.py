@@ -548,9 +548,12 @@ class ReferenceDataManager:
         """
         Get all active simulation sets.
 
-        Simulation sets map event rate scheme IDs to simulation set IDs
-        for ELT-based analyses. This fetches all active sets which can be
-        filtered locally by event rate scheme ID.
+        Simulation sets map event-rate scheme IDs to simulation-set IDs for
+        ELT analyses. Grouping inspection matches the partition fields and
+        requires each simulation set's ``eventRateSchemeId`` to resolve in the
+        active EventRateScheme response. Risk Modeler uses the relationship to
+        omit climate-conditioned choices. The relationship does not restrict
+        the caller's event-rate selection.
 
         Returns:
             List of simulation set dicts

@@ -116,12 +116,21 @@ submission = client.grouping.submit(
 )
 ```
 
-The package does not choose event-rate schemes, simulation sets, simulation
-counts, currency, detailed-loss settings, windows, or a grouping set. Inspection
-returns simulation-set choices for every ELT peril/region/model-version
-partition that must be converted to PLT. The simulation-set choice is independent
-of the event-rate-scheme choice. A PLT member keeps its own `petId` and does not
-require a simulation-set choice. A `SimulationPeriodsSelection` sets
+Member event-rate schemes are facts used to detect a conflict. For a conflicting
+partition, inspection returns every active Risk Modeler event-rate scheme with
+the partition's `perilCode` and `modelRegionCode`, including applicable schemes
+not used by a selected member. A partition with one observed scheme keeps the
+observed scheme and requires no caller selection. Risk Modeler reference data
+provides the option labels.
+
+The package owns no event-rate or simulation-set preferences or defaults. The
+package does not choose simulation counts, currency, detailed-loss settings,
+windows, or a grouping set. Inspection returns the simulation-set choices Risk
+Modeler presents for every ELT peril/region/model-version partition converted to
+PLT. A simulation set's `eventRateSchemeId` is descriptive; the simulation-set
+choice does not restrict the event-rate-scheme choice. A PLT member keeps its
+own `petId` and does not require a simulation-set choice. A
+`SimulationPeriodsSelection` sets
 `regionPerilSimulationSet[].simulationPeriods` for one partition of a PLT group;
 without one, a PLT row keeps its PET's period count and a converted ELT row keeps
 the chosen set's `defaultPeriods`.

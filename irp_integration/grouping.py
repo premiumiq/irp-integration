@@ -8,6 +8,13 @@ validates the caller's explicit choices, and posts the resulting request
 immediately. Treaties with the same Treaty Number and different loss-affecting
 terms produce warnings but do not block submission.
 
+Member event-rate schemes are facts used to detect a conflict. For a conflicting
+partition, inspection returns every active Risk Modeler event-rate scheme with
+the partition's ``perilCode`` and ``modelRegionCode``. Inspection selects no
+default. Simulation-set choices match the partition and resolve through an
+active event-rate scheme reference row; a simulation set's
+``eventRateSchemeId`` does not constrain the caller's event-rate selection.
+
 Treaty comparison includes cedant, treaty type, currency, attachment and limit
 terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs,
 and loss occurrences. Each warning carries the compared analysis treaty rows.
@@ -76,7 +83,12 @@ class GroupingPartitionKey:
 
 @dataclass(frozen=True)
 class EventRateSchemeOption:
-    """Event-rate scheme observed on at least one selected analysis."""
+    """Event-rate scheme returned for a grouping partition.
+
+    A conflicting partition receives every active Risk Modeler scheme with the
+    partition's ``perilCode`` and ``modelRegionCode``. A non-conflicting
+    partition receives its resolved observed scheme.
+    """
 
     event_rate_scheme_id: int
     label: Optional[str] = None
@@ -142,7 +154,17 @@ class GroupingMember:
 
 @dataclass(frozen=True)
 class GroupingPartition:
-    """Grouping choices and PET facts for one documented partition."""
+    """Risk Modeler choices and observed member facts for one partition.
+
+    Member event-rate schemes determine whether
+    ``event_rate_selection_required`` is true. When member schemes conflict,
+    ``event_rate_scheme_options`` contains every active Risk Modeler scheme
+    with the partition's ``perilCode`` and ``modelRegionCode``. With one
+    observed member scheme, the observed scheme remains resolved and no caller
+    selection is required. ``simulation_set_options`` contains the simulation
+    sets Risk Modeler presents for the partition. The package applies no
+    preference or default to either choice.
+    """
 
     key: GroupingPartitionKey
     analysis_ids: Tuple[int, ...]
@@ -350,7 +372,7 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 5
+    FINGERPRINT_VERSION = 6
 
     LOSS_AFFECTING_TREATY_FIELDS = (
         "cedant",
@@ -388,6 +410,12 @@ class GroupingManager:
     def inspect(self, *, analysis_ids: Sequence[int]) -> GroupingInspection:
         """Inspect selected analyses without creating a Platform grouping job.
 
+        Conflicting member event-rate schemes require a caller selection from
+        the Risk Modeler-applicable schemes returned for the partition. A
+        single observed member scheme remains resolved. Simulation-set options
+        are the choices Risk Modeler presents for an ELT partition converted to
+        PLT. Inspection selects no preference or default.
+
         Args:
             analysis_ids: At least two distinct positive Platform analysis IDs
 
@@ -416,7 +444,8 @@ class GroupingManager:
         Args:
             analysis_ids: At least two distinct positive Platform analysis IDs
             settings: Explicit grouping request settings
-            event_rate_selections: One offered scheme for each conflicting partition
+            event_rate_selections: One Risk Modeler-applicable offered scheme
+                for each conflicting partition
             expected_inspection_fingerprint: Fingerprint returned by the caller's inspection
             simulation_set_selections: One offered simulation set for each ELT
                 partition converted to PLT
@@ -629,7 +658,7 @@ class GroupingManager:
         members: List[GroupingMember] = []
         treaties: List[Dict[str, Any]] = []
         labels: Dict[int, Optional[str]] = {}
-        scheme_names: Optional[Dict[int, Optional[str]]] = None
+        scheme_rows: Optional[Tuple[Mapping[str, Any], ...]] = None
         version_cache: Dict[Tuple[str, str, str], Tuple[Optional[str], Optional[Exception]]] = {}
         pet_cache: Dict[
             Tuple[int, str, Optional[str]],
@@ -666,25 +695,35 @@ class GroupingManager:
                     pet_cache[key] = (None, exc)
             return pet_cache[key]
 
-        def scheme_name(scheme_id: int) -> Optional[str]:
+        def event_rate_scheme_rows() -> Tuple[Mapping[str, Any], ...]:
             """
-            Return the Platform's own name for an event-rate scheme ID.
+            Return active Risk Modeler event-rate scheme reference rows.
 
-            A member's region rows carry the ID alone, and its detail names at most one
-            scheme, so the reference list is the only source that names every
-            offered ID.
+            Event-rate applicability and CCM simulation-set exclusion both use
+            fields from the same active reference response.
             """
-            nonlocal scheme_names
-            if scheme_names is None:
+            nonlocal scheme_rows
+            if scheme_rows is None:
                 payload = self._irp.reference_data.get_event_rate_schemes()
                 rows = payload.get("items") if isinstance(payload, Mapping) else payload
-                scheme_names = {
-                    int(row["eventRateSchemeId"]): _text(row.get("eventRateSchemeName"))
-                    for row in rows or ()
-                    if isinstance(row, Mapping)
-                    and _positive_int(row.get("eventRateSchemeId"))
-                }
-            return scheme_names.get(scheme_id)
+                if (
+                    isinstance(rows, (str, bytes))
+                    or not isinstance(rows, Sequence)
+                ):
+                    raise IRPAPIError(
+                        "Event-rate scheme search returned a non-list response"
+                    )
+                scheme_rows = tuple(
+                    row for row in rows if isinstance(row, Mapping)
+                )
+            return scheme_rows
+
+        def scheme_name(scheme_id: int) -> Optional[str]:
+            """Return Risk Modeler's label for an event-rate scheme ID."""
+            for row in event_rate_scheme_rows():
+                if row.get("eventRateSchemeId") == scheme_id:
+                    return _text(row.get("eventRateSchemeName"))
+            return None
 
         for analysis_id in analysis_ids:
             try:
@@ -924,6 +963,7 @@ class GroupingManager:
             partition_facts.setdefault(key, []).append(fact)
 
         simulation_rows: List[Dict[str, Any]] = []
+        active_event_rate_scheme_ids: set[int] = set()
         if simulate_to_plt and any(fact.framework == "ELT" for fact in all_facts):
             raw_simulation_rows = self._irp.reference_data.get_all_simulation_sets()
             if not isinstance(raw_simulation_rows, list):
@@ -931,6 +971,11 @@ class GroupingManager:
             simulation_rows = [
                 row for row in raw_simulation_rows if isinstance(row, dict)
             ]
+            active_event_rate_scheme_ids = {
+                int(row["eventRateSchemeId"])
+                for row in event_rate_scheme_rows()
+                if _positive_int(row.get("eventRateSchemeId"))
+            }
 
         partitions: List[GroupingPartition] = []
         mappings: List[GroupingSimulationMapping] = []
@@ -942,6 +987,30 @@ class GroupingManager:
                 fact.event_rate_scheme_id for fact in facts
                 if fact.framework == "ELT" and fact.event_rate_scheme_id is not None
             })
+            if len(scheme_ids) > 1:
+                broad_model_region = f"{key.region_code}{key.peril_code}"
+                applicable_schemes = {
+                    int(row["eventRateSchemeId"]): _text(
+                        row.get("eventRateSchemeName")
+                    )
+                    for row in event_rate_scheme_rows()
+                    if (
+                        _positive_int(row.get("eventRateSchemeId"))
+                        and row.get("perilCode") == key.peril_code
+                        and row.get("modelRegionCode") == broad_model_region
+                    )
+                }
+                event_rate_options = tuple(
+                    EventRateSchemeOption(scheme_id, applicable_schemes[scheme_id])
+                    for scheme_id in sorted(applicable_schemes)
+                )
+            else:
+                event_rate_options = tuple(
+                    EventRateSchemeOption(
+                        scheme_id, scheme_name(scheme_id) or labels.get(scheme_id)
+                    )
+                    for scheme_id in scheme_ids
+                )
             pet_ids = tuple(sorted({
                 fact.pet_id for fact in facts
                 if fact.framework == "PLT" and fact.pet_id is not None
@@ -951,11 +1020,16 @@ class GroupingManager:
             if simulate_to_plt and elt_facts:
                 for row in simulation_rows:
                     row_version = _field(row, "modelVersionCode", "modelVersion")
+                    row_scheme = row.get("eventRateSchemeId")
+                    row_scheme_id = (
+                        int(row_scheme) if _positive_int(row_scheme) else None
+                    )
                     if (
                         row.get("modelRegionCode") != broad_model_region
                         or str(row_version) != key.model_version
                         or row.get("perilCode") != key.peril_code
                         or row.get("peqtSource") not in (None, "SYSTEM")
+                        or row_scheme_id not in active_event_rate_scheme_ids
                     ):
                         continue
                     simulation_id = _field(row, "id", "simulationSetId")
@@ -966,12 +1040,11 @@ class GroupingManager:
                         simulation_periods
                     ):
                         continue
-                    row_scheme = row.get("eventRateSchemeId")
                     simulation_options[int(simulation_id)] = SimulationSetOption(
                         simulation_set_id=int(simulation_id),
                         simulation_periods=int(simulation_periods),
                         event_rate_scheme_id=(
-                            int(row_scheme) if _positive_int(row_scheme) else None
+                            row_scheme_id
                         ),
                         label=_text(row.get("name")),
                     )
@@ -995,12 +1068,7 @@ class GroupingManager:
             partitions.append(GroupingPartition(
                 key=key,
                 analysis_ids=analysis_id_set,
-                event_rate_scheme_options=tuple(
-                    EventRateSchemeOption(
-                        scheme_id, scheme_name(scheme_id) or labels.get(scheme_id)
-                    )
-                    for scheme_id in scheme_ids
-                ),
+                event_rate_scheme_options=event_rate_options,
                 observed_pet_ids=pet_ids,
                 event_rate_selection_required=len(scheme_ids) > 1,
                 simulation_set_options=ordered_simulation_options,
@@ -1253,8 +1321,8 @@ class GroupingManager:
         } for problem in problems]
         payload = {
             "version": self.FINGERPRINT_VERSION,
-            "analysis_ids": analysis_ids,
-            "resource_uris": resource_uris,
+            "analysis_ids": tuple(sorted(analysis_ids)),
+            "resource_uris": tuple(sorted(resource_uris)),
             "members": [asdict(member) for member in sorted(members, key=lambda value: value.analysis_id)],
             "output_loss_table": output_loss_table,
             "simulate_to_plt": simulate_to_plt,
@@ -1318,7 +1386,7 @@ class GroupingManager:
                 problems.append(GroupingProblem(
                     code=GroupingProblemCode.EVENT_RATE_SELECTION_NOT_OFFERED.value,
                     message=(f"Event-rate scheme {selection.event_rate_scheme_id} was not "
-                             "observed on the selected members for this partition."),
+                             "offered for this partition."),
                     analysis_ids=partition.analysis_ids,
                     partition=key,
                 ))

@@ -2268,11 +2268,15 @@ Rules-based analysis grouping operations.
 
 Grouping uses an inspect-then-submit contract. Inspection reads analyses, regions, treaties, and reference mappings without creating a Platform job. Submission repeats the inspection, compares its deterministic fingerprint, validates the caller's explicit choices, and posts the resulting request immediately. Treaties with the same Treaty Number and different loss-affecting terms produce warnings but do not block submission.
 
+Member event-rate schemes are facts used to detect a conflict. For a conflicting partition, inspection returns every active Risk Modeler event-rate scheme with the partition's ``perilCode`` and ``modelRegionCode``. Inspection selects no default. Simulation-set choices match the partition and resolve through an active event-rate scheme reference row; a simulation set's ``eventRateSchemeId`` does not constrain the caller's event-rate selection.
+
 Treaty comparison includes cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, and loss occurrences. Each warning carries the compared analysis treaty rows. Treaty comparison excludes treaty IDs, display names, producers, premiums, user-defined fields, tags, and URIs.
 
 ### `class EventRateSchemeOption`
 
-Event-rate scheme observed on at least one selected analysis.
+Event-rate scheme returned for a grouping partition.
+
+A conflicting partition receives every active Risk Modeler scheme with the partition's ``perilCode`` and ``modelRegionCode``. A non-conflicting partition receives its resolved observed scheme.
 
 #### `__init__`
 
@@ -2355,6 +2359,12 @@ def inspect(
 
 Inspect selected analyses without creating a Platform grouping job.
 
+Conflicting member event-rate schemes require a caller selection from
+the Risk Modeler-applicable schemes returned for the partition. A
+single observed member scheme remains resolved. Simulation-set options
+are the choices Risk Modeler presents for an ELT partition converted to
+PLT. Inspection selects no preference or default.
+
 **Arguments:**
  - **analysis_ids:**  At least two distinct positive Platform analysis IDs
 
@@ -2385,7 +2395,8 @@ Reinspect, validate explicit choices, and create a grouping job.
 **Arguments:**
  - **analysis_ids:**  At least two distinct positive Platform analysis IDs
  - **settings:**  Explicit grouping request settings
- - **event_rate_selections:**  One offered scheme for each conflicting partition
+ - **event_rate_selections:**  One Risk Modeler-applicable offered scheme
+   for each conflicting partition
  - **expected_inspection_fingerprint:**  Fingerprint returned by the caller's inspection
  - **simulation_set_selections:**  One offered simulation set for each ELT
    partition converted to PLT
@@ -2443,7 +2454,9 @@ def __init__(
 
 ### `class GroupingPartition`
 
-Grouping choices and PET facts for one documented partition.
+Risk Modeler choices and observed member facts for one partition.
+
+Member event-rate schemes determine whether ``event_rate_selection_required`` is true. When member schemes conflict, ``event_rate_scheme_options`` contains every active Risk Modeler scheme with the partition's ``perilCode`` and ``modelRegionCode``. With one observed member scheme, the observed scheme remains resolved and no caller selection is required. ``simulation_set_options`` contains the simulation sets Risk Modeler presents for the partition. The package applies no preference or default to either choice.
 
 #### `__init__`
 
@@ -3922,9 +3935,12 @@ def get_all_simulation_sets(self) -> List[Dict[str, Any]]
 
 Get all active simulation sets.
 
-Simulation sets map event rate scheme IDs to simulation set IDs
-for ELT-based analyses. This fetches all active sets which can be
-filtered locally by event rate scheme ID.
+Simulation sets map event-rate scheme IDs to simulation-set IDs for
+ELT analyses. Grouping inspection matches the partition fields and
+requires each simulation set's ``eventRateSchemeId`` to resolve in the
+active EventRateScheme response. Risk Modeler uses the relationship to
+omit climate-conditioned choices. The relationship does not restrict
+the caller's event-rate selection.
 
 **Returns:**
 > List of simulation set dicts
