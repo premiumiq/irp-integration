@@ -14,3 +14,6 @@ build/
 # puts every tracked file into the sdist, so committing this would publish the
 # probe scripts and their captured tenant output to PyPI.
 probes/
+
+Claude
+.claude/
