@@ -506,14 +506,14 @@ class GroupingManager:
         )
         try:
             response = self.client.request("POST", CREATE_ANALYSIS_GROUP, json=request_body)
-            job_id = extract_id_from_location_header(response, "analysis group creation")
+            job_id = int(extract_id_from_location_header(response, "analysis group creation"))
         except IRPAPIError:
             raise
         except Exception as exc:
             raise IRPAPIError(
                 f"Failed to submit analysis group '{settings.analysis_name}': {exc}"
             ) from exc
-        return GroupingSubmission(job_id=int(job_id), request_body=request_body)
+        return GroupingSubmission(job_id=job_id, request_body=request_body)
 
     def get_job(self, *, job_id: int) -> Dict[str, Any]:
         """Retrieve grouping job status by job ID.
