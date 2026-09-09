@@ -585,9 +585,10 @@ class ReferenceDataManager:
         """
         Get simulation set by event rate scheme ID.
 
-        The lookup preserves its strict historical behavior. Grouping inspection
-        reads all active simulation sets because Risk Modeler allows a simulation
-        set to be selected independently of the event-rate scheme.
+        Raises when zero or more than one active simulation set carries
+        ``event_rate_scheme_id``. Grouping inspection does not use this lookup;
+        it reads all active simulation sets because Risk Modeler allows a
+        simulation set to be selected independently of the event-rate scheme.
 
         Args:
             event_rate_scheme_id: Event rate scheme ID from analysis regions
@@ -753,8 +754,8 @@ class ReferenceDataManager:
         """
         Get PET metadata by PET ID.
 
-        The lookup preserves its strict historical behavior and raises when a
-        PET ID occurs in more than one metadata row. Use
+        Raises when ``pet_id`` occurs in zero or more than one metadata row. A
+        PET ID can occur once per model version, so use
         ``get_pet_metadata_exact`` when model qualifiers are available.
 
         Args:
@@ -849,8 +850,8 @@ class ReferenceDataManager:
         """
         Get model version for a given engine version.
 
-        Note: This method looks for any entry matching the softwareVersionCode.
-        For more precise matching, use get_model_version_by_engine_and_region.
+        Note: This method returns the first entry matching the softwareVersionCode.
+        For more precise matching, use ``get_model_version_by_engine_region_peril``.
 
         Args:
             engine_version: Engine version string (e.g., "HDv2.0", "RL23")

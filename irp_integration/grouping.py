@@ -430,7 +430,8 @@ class GroupingManager:
         self.client = irp.client
 
     def inspect(self, *, analysis_ids: Sequence[int]) -> GroupingInspection:
-        """Inspect selected analyses without creating a Platform grouping job.
+        """
+        Inspect selected analyses without creating a Platform grouping job.
 
         Conflicting member event-rate schemes require a caller selection from
         the Risk Modeler-applicable schemes returned for the partition. A
@@ -461,7 +462,8 @@ class GroupingManager:
         simulation_set_selections: Sequence[SimulationSetSelection] = (),
         simulation_periods_selections: Sequence[SimulationPeriodsSelection] = (),
     ) -> GroupingSubmission:
-        """Reinspect, validate explicit choices, and create a grouping job.
+        """
+        Reinspect, validate explicit choices, and create a grouping job.
 
         Args:
             analysis_ids: At least two distinct positive Platform analysis IDs
