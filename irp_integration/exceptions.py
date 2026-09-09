@@ -5,6 +5,11 @@ These exceptions provide clear, structured error handling for different
 failure scenarios when interacting with Moody's Risk Modeler API.
 """
 
+from typing import Sequence, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .grouping import GroupingProblem
+
 
 class IRPIntegrationError(Exception):
     """Base exception for all IRP integration errors."""
@@ -39,6 +44,20 @@ class IRPValidationError(IRPIntegrationError):
     (e.g., empty strings, invalid IDs, missing files).
     """
     pass
+
+
+class IRPGroupingValidationError(IRPValidationError):
+    """Rule-based grouping validation errors with structured problems."""
+
+    def __init__(self, problems: Sequence["GroupingProblem"]) -> None:
+        """Initialize the error from one or more grouping problems.
+
+        Args:
+            problems: Structured problems that prevented grouping submission
+        """
+        self.problems = tuple(problems)
+        message = "; ".join(problem.message for problem in self.problems)
+        super().__init__(message or "Grouping validation failed")
 
 
 class IRPWorkflowError(IRPIntegrationError):

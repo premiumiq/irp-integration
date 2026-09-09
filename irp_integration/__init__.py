@@ -5,7 +5,7 @@ The single entry point is ``IRPClient``, which holds one HTTP client and exposes
 a manager per functional area; reach operations through those managers.
 
 Managers (``client.<name>``):
-    edm, portfolio, mri_import, treaty, analysis, risk_data_job, rdm,
+    edm, portfolio, mri_import, treaty, analysis, grouping, risk_data_job, rdm,
     import_job, export_job, reference_data, and (optional) databridge.
 
 Name-based interface: high-level methods accept human-readable names (EDM names,
@@ -40,6 +40,7 @@ from .edm import EDMManager
 from .portfolio import PortfolioManager
 from .mri_import import MRIImportManager
 from .analysis import AnalysisManager
+from .grouping import GroupingManager
 from .treaty import TreatyManager
 from .reference_data import ReferenceDataManager
 from .rdm import RDMManager
@@ -63,6 +64,7 @@ class IRPClient:
         self.portfolio = PortfolioManager(self)
         self.mri_import = MRIImportManager(self)
         self.analysis = AnalysisManager(self)
+        self.grouping = GroupingManager(self)
         self.treaty = TreatyManager(self)
         self.rdm = RDMManager(self)
         self.import_job = ImportJobManager(self)

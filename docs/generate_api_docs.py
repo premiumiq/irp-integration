@@ -33,6 +33,7 @@ MODULE_ORDER = [
     "mri_import",
     "treaty",
     "analysis",
+    "grouping",
     "analysis_validation",
     "rdm",
     "risk_data_job",

@@ -75,3 +75,148 @@ def test_invalid_pagination_params_raise_before_request(method_name, kwargs, mak
         getattr(manager, method_name)(**kwargs)
 
     assert client.calls == []
+
+
+def test_exact_simulation_set_requires_one_atomic_match(make_reference_data_manager, response):
+    """Match scheme, model region, and model version on the same row."""
+    rows = [
+        {
+            'id': 10,
+            'eventRateSchemeId': 7,
+            'modelRegionCode': 'NAWS',
+            'modelVersionCode': '11.0',
+            'defaultPeriods': 100000,
+        },
+        {
+            'id': 11,
+            'eventRateSchemeId': 7,
+            'modelRegionCode': 'NAWS',
+            'modelVersionCode': '12.0',
+            'defaultPeriods': 100000,
+        },
+    ]
+    manager, _ = make_reference_data_manager([
+        response(200, json_body={'items': rows}),
+    ])
+
+    result = manager.get_simulation_set_exact(
+        event_rate_scheme_id=7,
+        model_region_code='NAWS',
+        model_version='11.0',
+    )
+
+    assert result['id'] == 10
+
+
+@pytest.mark.parametrize('rows', [[], [
+    {
+        'id': 10,
+        'eventRateSchemeId': 7,
+        'modelRegionCode': 'NAWS',
+        'modelVersionCode': '11.0',
+    },
+    {
+        'id': 12,
+        'eventRateSchemeId': 7,
+        'modelRegionCode': 'NAWS',
+        'modelVersionCode': '11.0',
+    },
+]])
+def test_exact_simulation_set_rejects_zero_or_multiple_matches(
+    rows, make_reference_data_manager, response
+):
+    """Never select a fallback simulation set when cardinality is not one."""
+    manager, _ = make_reference_data_manager([
+        response(200, json_body={'items': rows}),
+    ])
+
+    with pytest.raises(IRPAPIError):
+        manager.get_simulation_set_exact(
+            event_rate_scheme_id=7,
+            model_region_code='NAWS',
+            model_version='11.0',
+        )
+
+
+def test_pet_metadata_reads_every_page(make_reference_data_manager, response):
+    """Find a PET beyond the former fixed first page of 500 rows."""
+    first_page = [{'id': value} for value in range(1, 501)]
+    manager, client = make_reference_data_manager([
+        response(200, json_body={'items': first_page}),
+        response(200, json_body={'items': [
+            {'id': 501, 'modelRegionCode': 'NAWS', 'modelVersionCode': '11.0'}
+        ]}),
+    ])
+
+    result = manager.get_pet_metadata_by_id(501)
+
+    assert result['id'] == 501
+    assert [call['params']['offset'] for call in client.calls] == [0, 500]
+
+
+def test_exact_pet_metadata_uses_version_and_optional_region(
+    make_reference_data_manager, response
+):
+    """Select a PET row only when every supplied qualifier matches."""
+    rows = [
+        {'id': 15, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.0'},
+        {'id': 16, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.0'},
+        {'id': 15, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.1'},
+        {'id': 16, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.1'},
+        {'id': 15, 'modelRegionCode': 'NAWS', 'modelVersionCode': '2.1'},
+    ]
+    manager, _ = make_reference_data_manager([
+        response(200, json_body={'items': rows}),
+        response(200, json_body={'items': rows}),
+    ])
+
+    region_result = manager.get_pet_metadata_exact(
+        pet_id=15,
+        model_version='2.1',
+        model_region_code='JPWS',
+    )
+    version_result = manager.get_pet_metadata_exact(
+        pet_id=16,
+        model_version='2.1',
+    )
+
+    assert region_result == rows[2]
+    assert version_result == rows[3]
+
+
+@pytest.mark.parametrize('rows', [
+    [],
+    [
+        {'id': 15, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.1'},
+        {'id': 15, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.1'},
+    ],
+])
+def test_exact_pet_metadata_rejects_zero_or_multiple_qualified_matches(
+    rows, make_reference_data_manager, response
+):
+    """Reject zero or multiple matches after applying every qualifier."""
+    manager, _ = make_reference_data_manager([
+        response(200, json_body={'items': rows}),
+    ])
+
+    with pytest.raises(IRPAPIError):
+        manager.get_pet_metadata_exact(
+            pet_id=15,
+            model_version='2.1',
+            model_region_code='JPWS',
+        )
+
+
+def test_pet_metadata_by_id_remains_ambiguous_across_versions(
+    make_reference_data_manager, response
+):
+    """Preserve strict PET-ID lookup behavior when an ID spans versions."""
+    manager, _ = make_reference_data_manager([
+        response(200, json_body={'items': [
+            {'id': 15, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.0'},
+            {'id': 15, 'modelRegionCode': 'JPWS', 'modelVersionCode': '2.1'},
+        ]}),
+    ])
+
+    with pytest.raises(IRPAPIError, match="Multiple PET metadata rows"):
+        manager.get_pet_metadata_by_id(15)
