@@ -580,7 +580,7 @@ def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme()
     assert result.request_body == client.calls[-1]["json"]
 
 
-def test_dlm_only_group_matches_event_rates_by_model_version():
+def test_dlm_partition_matches_event_rates_by_model_version():
     """Offer the NAEQ 17.0 schemes and exclude a NAEQ scheme from model version 9.0."""
     details, regions = pure_elt_fixtures(conflicting=True)
     details[1].update({"perilCode": "EQ", "eventRateSchemeId": 901})
@@ -654,8 +654,8 @@ def test_dlm_engine_type_matches_in_any_case():
     ] == [101, 102]
 
 
-def test_hd_group_retains_event_rate_comparison_without_model_version():
-    """Leave HD conflicting event-rate options unchanged."""
+def test_hd_partition_retains_event_rate_comparison_without_model_version():
+    """Compare an HD partition by peril and model region only."""
     details, regions = pure_elt_fixtures(conflicting=True)
     for detail in details.values():
         detail["engineType"] = "HD"
@@ -674,6 +674,35 @@ def test_hd_group_retains_event_rate_comparison_without_model_version():
         option.event_rate_scheme_id
         for option in inspection.partitions[0].event_rate_scheme_options
     ] == [101, 102, 103]
+
+
+def test_dlm_partition_in_hd_group_matches_event_rates_by_model_version():
+    """Filter a DLM partition by modelVersionCode inside a PLT HD group."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    details[3] = analysis(3, framework="PLT", engine_type="HD", scheme_id=None)
+    regions[3] = [
+        region(3, framework="PLT", scheme_id=None, pet_id=50, periods=100000)
+    ]
+    manager, _, reference_data = make_manager(details, regions)
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": 103,
+        "eventRateSchemeName": "Earlier model version",
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "10.0",
+    })
+
+    inspection = manager.inspect(analysis_ids=[1, 2, 3])
+
+    assert inspection.output_loss_table == "PLT"
+    partition = next(
+        candidate for candidate in inspection.partitions
+        if candidate.key == GroupingPartitionKey("WS", "NA", "11.0")
+    )
+    assert [
+        option.event_rate_scheme_id
+        for option in partition.event_rate_scheme_options
+    ] == [101, 102]
 
 
 def test_is_default_does_not_select_a_scheme_for_a_conflict():

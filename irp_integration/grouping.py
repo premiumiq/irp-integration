@@ -9,13 +9,14 @@ immediately. Treaties with the same Treaty Number and different loss-affecting
 terms produce warnings but do not block submission.
 
 Member event-rate schemes are facts used to detect a conflict. For a conflicting
-DLM-only ELT group, inspection returns every active Risk Modeler event-rate
-scheme with the partition's ``perilCode``, ``modelRegionCode``, and
-``modelVersionCode``. Other conflicting groups retain the peril and model-region
-comparison. Inspection selects no default. Simulation-set choices match the
-partition and resolve through an active event-rate scheme reference row; a
-simulation set's ``eventRateSchemeId`` does not constrain the caller's
-event-rate selection.
+partition whose ELT regions all come from DLM analyses, inspection returns every
+active Risk Modeler event-rate scheme with the partition's ``perilCode``,
+``modelRegionCode``, and ``modelVersionCode``. A conflicting partition with an
+HD ELT region retains the peril and model-region comparison. Whether the group
+outputs ELT or PLT does not change either comparison. Inspection selects no
+default. Simulation-set choices match the partition and resolve through an
+active event-rate scheme reference row; a simulation set's
+``eventRateSchemeId`` does not constrain the caller's event-rate selection.
 
 Treaty comparison includes cedant, treaty type, currency, attachment and limit
 terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs,
@@ -50,10 +51,10 @@ class GroupingProblemCode(str, Enum):
     positive ``eventRateSchemeId``. ``EVENT_RATE_SCHEME_MAPPING_MISSING``
     reports a partition whose members disagree on their event-rate scheme
     and for which no active reference row carries the partition's
-    ``perilCode``, ``modelRegionCode``, and, for a DLM-only ELT group,
-    ``modelVersionCode``. The partition then has no option to offer, so the
-    problem is returned in ``blocking_problems`` and ``submit`` refuses the
-    group.
+    ``perilCode``, ``modelRegionCode``, and, when the partition's ELT regions
+    all come from DLM analyses, ``modelVersionCode``. The partition then has no
+    option to offer, so the problem is returned in ``blocking_problems`` and
+    ``submit`` refuses the group.
     """
 
     INSPECTION_CHANGED = "inspection_changed"
@@ -101,12 +102,13 @@ class EventRateSchemeOption:
     """
     Event-rate scheme returned for a grouping partition.
 
-    In a DLM-only ELT group, a conflicting partition receives every active Risk
-    Modeler scheme with the partition's ``perilCode``, ``modelRegionCode``, and
-    ``modelVersionCode``. Other conflicting groups retain the peril and
-    model-region comparison. A non-conflicting partition receives its resolved
-    observed scheme. A conflicting partition with no applicable active scheme
-    receives no options and reports ``event_rate_scheme_mapping_missing`` in
+    A conflicting partition whose ELT regions all come from DLM analyses
+    receives every active Risk Modeler scheme with the partition's
+    ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. A conflicting
+    partition with an HD ELT region retains the peril and model-region
+    comparison. A non-conflicting partition receives its resolved observed
+    scheme. A conflicting partition with no applicable active scheme receives
+    no options and reports ``event_rate_scheme_mapping_missing`` in
     ``blocking_problems``.
     """
 
@@ -178,14 +180,15 @@ class GroupingPartition:
 
     Member event-rate schemes determine whether
     ``event_rate_selection_required`` is true. When member schemes conflict,
-    ``event_rate_scheme_options`` for a DLM-only ELT group contains every active
-    Risk Modeler scheme with the partition's ``perilCode``,
-    ``modelRegionCode``, and ``modelVersionCode``. Other conflicting groups
-    retain the peril and model-region comparison. With one observed member
-    scheme, the observed scheme remains resolved and no caller selection is
-    required. ``simulation_set_options`` contains the simulation sets Risk
-    Modeler presents for the partition. The package applies no preference or
-    default to either choice.
+    ``event_rate_scheme_options`` for a partition whose ELT regions all come
+    from DLM analyses contains every active Risk Modeler scheme with the
+    partition's ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. A
+    conflicting partition with an HD ELT region retains the peril and
+    model-region comparison. With one observed member scheme, the observed
+    scheme remains resolved and no caller selection is required.
+    ``simulation_set_options`` contains the simulation sets Risk Modeler
+    presents for the partition. The package applies no preference or default to
+    either choice.
     """
 
     key: GroupingPartitionKey
@@ -969,13 +972,11 @@ class GroupingManager:
         all_facts = [fact for member in members for fact in member.regions]
         simulate_to_plt = any(fact.framework == "PLT" for fact in all_facts)
         output_loss_table = "PLT" if simulate_to_plt else "ELT"
-        dlm_only_elt_group = (
-            output_loss_table == "ELT"
-            and all(
-                member.exists and (member.engine_type or "").upper() == "DLM"
-                for member in members
-            )
-        )
+        dlm_analysis_ids = {
+            member.analysis_id
+            for member in members
+            if member.exists and (member.engine_type or "").upper() == "DLM"
+        }
 
         partition_facts: Dict[GroupingPartitionKey, List[GroupingRegionFact]] = {}
         for fact in all_facts:
@@ -1008,6 +1009,9 @@ class GroupingManager:
                 if fact.framework == "ELT" and fact.event_rate_scheme_id is not None
             })
             if len(scheme_ids) > 1:
+                dlm_only_partition = all(
+                    fact.analysis_id in dlm_analysis_ids for fact in elt_facts
+                )
                 broad_model_region = f"{key.region_code}{key.peril_code}"
                 applicable_schemes = {
                     int(row["eventRateSchemeId"]): _text(
@@ -1019,7 +1023,7 @@ class GroupingManager:
                         and row.get("perilCode") == key.peril_code
                         and row.get("modelRegionCode") == broad_model_region
                         and (
-                            not dlm_only_elt_group
+                            not dlm_only_partition
                             or row.get("modelVersionCode") == key.model_version
                         )
                     )

@@ -117,12 +117,14 @@ submission = client.grouping.submit(
 ```
 
 Member event-rate schemes are facts used to detect a conflict. For a conflicting
-DLM-only ELT group, inspection returns every active Risk Modeler event-rate
-scheme with the partition's `perilCode`, `modelRegionCode`, and
-`modelVersionCode`, including applicable schemes not used by a selected member.
-Other conflicting groups retain the peril and model-region comparison. A
-partition with one observed scheme keeps the observed scheme and requires no
-caller selection. A conflicting partition that no applicable active scheme
+partition whose ELT regions all come from DLM analyses, inspection returns every
+active Risk Modeler event-rate scheme with the partition's `perilCode`,
+`modelRegionCode`, and `modelVersionCode`, including applicable schemes not used
+by a selected member. A conflicting partition with an HD ELT region retains the
+peril and model-region comparison. Whether the group outputs ELT or PLT does not
+change either comparison, so a DLM partition in a mixed HD and DLM group is
+compared by `modelVersionCode`. A partition with one observed scheme keeps the
+observed scheme and requires no caller selection. A conflicting partition that no applicable active scheme
 matches returns `event_rate_scheme_mapping_missing` in
 `inspection.blocking_problems`. Risk Modeler reference data provides the option
 labels.
