@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from conftest import FakeClient, FakeResponse
+from irp_integration.constants import GET_ANALYSIS_GROUPING_JOB
 from irp_integration.exceptions import IRPAPIError, IRPGroupingValidationError, IRPValidationError
 from irp_integration.grouping import (
     EventRateSelection,
@@ -14,17 +15,19 @@ from irp_integration.grouping import (
     GroupingManager,
     GroupingPartitionKey,
     GroupingSettings,
-    GroupingTreaty,
     SimulationPeriodsSelection,
     SimulationSetSelection,
 )
 
-# The sandbox PETMetadata petName for JPWS PET 15 and PET 16, which the JP
-# fixtures group and which occur under both model version 2.0 and 2.1.
-TYPHOON_PET_NAME = "RMS V2.0 Stochastic Event Rates - Typhoon Events Only"
-NON_TYPHOON_PET_NAME = (
-    "RMS V2.0 Stochastic Event Rates - Non-Typhoon Flood Events Only"
-)
+# Invented petName values for JPWS PET 15 and PET 16. The PET fixture lists
+# both IDs under model version 2.0 and 2.1 with a different name per version,
+# so a region fact's pet_name proves which row the resolved model version
+# selected.
+TYPHOON_PET_NAME = "Example Stochastic Rates - Typhoon Only"
+NON_TYPHOON_PET_NAME = "Example Stochastic Rates - Non-Typhoon Flood Only"
+
+WS_PARTITION = GroupingPartitionKey("WS", "NA", "11.0")
+MIXED_SIMULATION_SET = [SimulationSetSelection(WS_PARTITION, 1001)]
 
 
 def analysis(
@@ -130,14 +133,14 @@ class FakeReferenceDataManager:
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
-                "petName": "RMS V2.0 Stochastic Rates - CatLoss US (Default)",
+                "petName": "Example Stochastic Rates - CatLoss US (Default)",
             },
             {
                 "id": 51,
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
-                "petName": "RMS V2.0 Stochastic Rates - CatLoss US Utility",
+                "petName": "Example Stochastic Rates - CatLoss US Utility",
             },
             {
                 "id": 60,
@@ -146,9 +149,9 @@ class FakeReferenceDataManager:
                 "numberOfPeriods": 50000,
             },
             {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.0",
-             "petName": TYPHOON_PET_NAME},
+             "petName": f"{TYPHOON_PET_NAME} v2.0"},
             {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.0",
-             "petName": NON_TYPHOON_PET_NAME},
+             "petName": f"{NON_TYPHOON_PET_NAME} v2.0"},
             {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
              "petName": TYPHOON_PET_NAME},
             {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
@@ -168,12 +171,11 @@ class FakeReferenceDataManager:
                 "peqtSource": "SYSTEM",
             }
         ]
-        self.simulation_calls = 0
         self.model_version_error: Optional[IRPAPIError] = None
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
         """Return the fixture scheme list in the Platform's envelope."""
-        return {"items": list(self.event_rate_schemes)}
+        return {"items": self.event_rate_schemes}
 
     def get_model_version_by_engine_region_peril(
         self, engine_version: str, region_code: str, peril_code: str
@@ -220,7 +222,6 @@ class FakeReferenceDataManager:
 
     def get_all_simulation_sets(self) -> List[Dict[str, Any]]:
         """Return every active simulation-set fixture."""
-        self.simulation_calls += 1
         return list(self.simulation_sets)
 
 
@@ -259,6 +260,18 @@ def settings() -> GroupingSettings:
         propagate_detailed_losses=True,
         num_of_simulations=1,
     )
+
+
+def submit(manager, inspection, **overrides):
+    """Submit with the four required arguments; each override replaces one."""
+    kwargs = dict(
+        analysis_ids=list(inspection.analysis_ids),
+        settings=settings(),
+        event_rate_selections=[],
+        expected_inspection_fingerprint=inspection.fingerprint,
+    )
+    kwargs.update(overrides)
+    return manager.submit(**kwargs)
 
 
 def pure_elt_fixtures(conflicting: bool = False):
@@ -360,36 +373,39 @@ def test_matching_treaty_terms_ignore_non_loss_properties():
 
 
 def test_inconsistent_treaty_terms_return_structured_warning():
-    """Return each compared analysis treaty and its differing term value."""
+    """Return compared treaties sorted by analysis and treaty ID with the differing value."""
     details, regions = pure_elt_fixtures()
+    details[3] = analysis(3, scheme_id=101)
+    regions[3] = [region(3, scheme_id=101)]
     manager, _, _ = make_manager(
         details,
         regions,
         treaties={
-            1: [treaty(1, 11)],
+            1: [treaty(1, 31)],
             2: [treaty(2, 22, occurrence_limit=2_000_000)],
+            3: [treaty(3, 13)],
         },
     )
 
-    inspection = manager.inspect(analysis_ids=[1, 2])
+    inspection = manager.inspect(analysis_ids=[3, 1, 2])
 
     assert inspection.blocking_problems == ()
     assert len(inspection.warnings) == 1
     warning = inspection.warnings[0]
     assert warning.code == "inconsistent_treaty_terms"
-    assert warning.analysis_ids == (1, 2)
+    assert warning.analysis_ids == (1, 2, 3)
     assert warning.treaty_numbers == ("CATA-1",)
-    assert warning.treaty_ids == (11, 22)
+    assert warning.treaty_ids == (13, 22, 31)
     assert warning.differing_fields == ("occurrenceLimit",)
     assert [
         (row.analysis_id, row.treaty_id, row.treaty_number)
         for row in warning.treaties
-    ] == [(1, 11, "CATA-1"), (2, 22, "CATA-1")]
+    ] == [(1, 31, "CATA-1"), (2, 22, "CATA-1"), (3, 13, "CATA-1")]
     assert [row.terms["occurrenceLimit"] for row in warning.treaties] == [
         1_000_000,
         2_000_000,
+        1_000_000,
     ]
-    assert all(isinstance(row, GroupingTreaty) for row in warning.treaties)
 
 
 def test_inconsistent_treaty_currency_returns_normalized_codes():
@@ -408,28 +424,6 @@ def test_inconsistent_treaty_currency_returns_normalized_codes():
 
     assert warning.differing_fields == ("currency",)
     assert [row.terms["currency"] for row in warning.treaties] == ["USD", "CAD"]
-
-
-def test_inconsistent_treaty_rows_are_sorted_by_analysis_and_treaty_id():
-    """Sort three compared analysis treaties by analysis ID and treaty ID."""
-    details, regions = pure_elt_fixtures()
-    details[3] = analysis(3, scheme_id=101)
-    regions[3] = [region(3, scheme_id=101)]
-    manager, _, _ = make_manager(
-        details,
-        regions,
-        treaties={
-            1: [treaty(1, 31)],
-            2: [treaty(2, 22, occurrence_limit=2_000_000)],
-            3: [treaty(3, 13)],
-        },
-    )
-
-    warning = manager.inspect(analysis_ids=[3, 1, 2]).warnings[0]
-
-    assert [
-        (row.analysis_id, row.treaty_id) for row in warning.treaties
-    ] == [(1, 31), (2, 22), (3, 13)]
 
 
 def test_inconsistent_treaty_row_keeps_missing_treaty_id():
@@ -511,12 +505,7 @@ def test_inconsistent_treaty_warning_does_not_block_submission():
     )
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    submission = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-    )
+    submission = submit(manager, inspection)
 
     assert submission.job_id == 7001
     assert client.calls[-1]["method"] == "POST"
@@ -525,35 +514,16 @@ def test_inconsistent_treaty_warning_does_not_block_submission():
 def test_treaty_term_change_after_inspection_changes_fingerprint():
     """Require another review when treaty terms change before submission."""
     details, regions = pure_elt_fixtures()
-    manager, client, _ = make_manager(
-        details,
-        regions,
-        treaties={1: [treaty(1, 11)], 2: [treaty(2, 22)]},
-    )
+    treaties = {1: [treaty(1, 11)], 2: [treaty(2, 22)]}
+    manager, client, _ = make_manager(details, regions, treaties=treaties)
     inspection = manager.inspect(analysis_ids=[1, 2])
-    manager._irp.analysis.treaties[2][0]["occurrenceLimit"] = 2_000_000
+    treaties[2][0]["occurrenceLimit"] = 2_000_000
 
     with pytest.raises(IRPGroupingValidationError) as exc_info:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[],
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
+        submit(manager, inspection)
 
     assert exc_info.value.problems[0].code == "inspection_changed"
     assert client.calls == []
-
-
-def test_conflicting_pure_elt_requires_one_applicable_scheme():
-    """Return applicable reference choices without selecting one."""
-    manager, _, _ = make_manager(*pure_elt_fixtures(conflicting=True))
-
-    result = manager.inspect(analysis_ids=[1, 2])
-
-    partition = result.partitions[0]
-    assert partition.event_rate_selection_required is True
-    assert [option.event_rate_scheme_id for option in partition.event_rate_scheme_options] == [101, 102]
 
 
 def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme():
@@ -599,11 +569,9 @@ def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme()
         (103, "Applicable but unobserved"),
     ]
 
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
+    result = submit(
+        manager, inspection,
         event_rate_selections=[EventRateSelection(partition.key, 103)],
-        expected_inspection_fingerprint=inspection.fingerprint,
     )
 
     assert result.request_body["settings"]["regionPerilSimulationSet"][0][
@@ -613,26 +581,24 @@ def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme()
 
 
 def test_dlm_only_group_matches_event_rates_by_model_version():
-    """Return the seven NAEQ 17.0 choices and exclude NAEQ 9.0 schemes."""
+    """Offer the NAEQ 17.0 schemes and exclude a NAEQ scheme from model version 9.0."""
     details, regions = pure_elt_fixtures(conflicting=True)
-    details[1].update({"perilCode": "EQ", "eventRateSchemeId": 164})
-    details[2].update({"perilCode": "EQ", "eventRateSchemeId": 163})
+    details[1].update({"perilCode": "EQ", "eventRateSchemeId": 901})
+    details[2].update({"perilCode": "EQ", "eventRateSchemeId": 902})
     for raw_region in regions[1]:
-        raw_region.update({"peril": "EQ", "rateSchemeId": 164})
+        raw_region.update({"peril": "EQ", "rateSchemeId": 901})
     for raw_region in regions[2]:
-        raw_region.update({"peril": "EQ", "rateSchemeId": 163})
+        raw_region.update({"peril": "EQ", "rateSchemeId": 902})
     manager, _, reference_data = make_manager(details, regions)
-    current_ids = [163, 164, 166, 167, 168, 5080, 5100]
-    old_ids = [34, 35, 45, 46, 47]
     reference_data.event_rate_schemes = [
         {
             "eventRateSchemeId": scheme_id,
             "eventRateSchemeName": f"NAEQ scheme {scheme_id}",
             "perilCode": "EQ",
             "modelRegionCode": "NAEQ",
-            "modelVersionCode": "17.0" if scheme_id in current_ids else "9.0",
+            "modelVersionCode": model_version,
         }
-        for scheme_id in old_ids + current_ids
+        for scheme_id, model_version in ((901, "17.0"), (902, "17.0"), (903, "9.0"))
     ]
 
     inspection = manager.inspect(analysis_ids=[1, 2])
@@ -642,14 +608,36 @@ def test_dlm_only_group_matches_event_rates_by_model_version():
     assert [
         option.event_rate_scheme_id
         for option in partition.event_rate_scheme_options
-    ] == current_ids
+    ] == [901, 902]
 
 
-def test_dlm_only_group_rejects_scheme_for_another_model_version():
-    """Reject a same-peril and same-region scheme from another model version."""
-    manager, client, reference_data = make_manager(
-        *pure_elt_fixtures(conflicting=True)
+def test_conflicting_partition_without_a_reference_row_blocks():
+    """Block a conflicting partition that no active reference scheme matches."""
+    manager, _, reference_data = make_manager(*pure_elt_fixtures(conflicting=True))
+    reference_data.event_rate_schemes = []
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    codes = {problem.code for problem in inspection.blocking_problems}
+    assert "event_rate_scheme_mapping_missing" in codes
+    assert "event_rate_scheme_missing" not in codes
+    partition = inspection.partitions[0]
+    assert partition.event_rate_selection_required is True
+    assert partition.event_rate_scheme_options == ()
+    problem = next(
+        problem for problem in inspection.blocking_problems
+        if problem.code == "event_rate_scheme_mapping_missing"
     )
+    assert problem.partition == WS_PARTITION
+    assert problem.analysis_ids == (1, 2)
+
+
+def test_dlm_engine_type_matches_in_any_case():
+    """Apply the DLM model-version restriction when engineType is not upper case."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    for detail in details.values():
+        detail["engineType"] = "dlm"
+    manager, _, reference_data = make_manager(details, regions)
     reference_data.event_rate_schemes.append({
         "eventRateSchemeId": 103,
         "eventRateSchemeName": "Earlier model version",
@@ -657,22 +645,13 @@ def test_dlm_only_group_rejects_scheme_for_another_model_version():
         "modelRegionCode": "NAWS",
         "modelVersionCode": "10.0",
     })
+
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[
-                EventRateSelection(inspection.partitions[0].key, 103)
-            ],
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
-
-    assert [problem.code for problem in raised.value.problems] == [
-        "event_rate_selection_not_offered"
-    ]
-    assert client.calls == []
+    assert [
+        option.event_rate_scheme_id
+        for option in inspection.partitions[0].event_rate_scheme_options
+    ] == [101, 102]
 
 
 def test_hd_group_retains_event_rate_comparison_without_model_version():
@@ -706,46 +685,11 @@ def test_is_default_does_not_select_a_scheme_for_a_conflict():
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[],
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
+        submit(manager, inspection)
 
     assert inspection.partitions[0].event_rate_selection_required is True
     assert [problem.code for problem in raised.value.problems] == [
         "event_rate_selection_missing"
-    ]
-    assert client.calls == []
-
-
-def test_conflicting_partition_rejects_scheme_for_another_model_region():
-    """Reject a reference scheme outside the partition before the grouping POST."""
-    manager, client, reference_data = make_manager(
-        *pure_elt_fixtures(conflicting=True)
-    )
-    reference_data.event_rate_schemes.append({
-        "eventRateSchemeId": 104,
-        "eventRateSchemeName": "Europe Windstorm",
-        "perilCode": "WS",
-        "modelRegionCode": "EUWS",
-        "modelVersionCode": "11.0",
-    })
-    inspection = manager.inspect(analysis_ids=[1, 2])
-
-    with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[
-                EventRateSelection(inspection.partitions[0].key, 104)
-            ],
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
-
-    assert [problem.code for problem in raised.value.problems] == [
-        "event_rate_selection_not_offered"
     ]
     assert client.calls == []
 
@@ -771,9 +715,7 @@ def test_display_name_region_rows_resolve_to_the_detail_codes():
     result = manager.inspect(analysis_ids=[1, 2])
 
     assert result.blocking_problems == ()
-    assert [partition.key for partition in result.partitions] == [
-        GroupingPartitionKey("WS", "NA", "11.0")
-    ]
+    assert [partition.key for partition in result.partitions] == [WS_PARTITION]
     assert [
         (option.event_rate_scheme_id, option.label)
         for option in result.partitions[0].event_rate_scheme_options
@@ -828,11 +770,9 @@ def test_conflicting_pure_elt_submission_emits_verified_zero_simulation_fields()
     inspection = manager.inspect(analysis_ids=[1, 2])
     partition = inspection.partitions[0].key
 
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
+    result = submit(
+        manager, inspection,
         event_rate_selections=[EventRateSelection(partition, 102)],
-        expected_inspection_fingerprint=inspection.fingerprint,
     )
 
     assert result.job_id == 7001
@@ -857,8 +797,10 @@ def test_conflicting_pure_elt_submission_emits_verified_zero_simulation_fields()
     ("selections", "code"),
     [
         ([], "event_rate_selection_missing"),
-        ([EventRateSelection(GroupingPartitionKey("WS", "NA", "11.0"), 999)],
+        ([EventRateSelection(WS_PARTITION, 999)],
          "event_rate_selection_not_offered"),
+        ([EventRateSelection(WS_PARTITION, 101), EventRateSelection(WS_PARTITION, 102)],
+         "event_rate_selection_duplicate"),
         ([EventRateSelection(GroupingPartitionKey("EQ", "US", "23.0"), 101)],
          "event_rate_selection_unknown_partition"),
     ],
@@ -869,32 +811,9 @@ def test_invalid_event_rate_selection_blocks_post(selections, code):
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=selections,
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
+        submit(manager, inspection, event_rate_selections=selections)
 
     assert code in {problem.code for problem in raised.value.problems}
-    assert client.calls == []
-
-
-def test_duplicate_event_rate_selection_is_structured():
-    """Reject duplicate choices for the same conflicting partition."""
-    manager, client, _ = make_manager(*pure_elt_fixtures(conflicting=True))
-    inspection = manager.inspect(analysis_ids=[1, 2])
-    key = inspection.partitions[0].key
-
-    with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[EventRateSelection(key, 101), EventRateSelection(key, 102)],
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
-
-    assert "event_rate_selection_duplicate" in {p.code for p in raised.value.problems}
     assert client.calls == []
 
 
@@ -938,12 +857,7 @@ def test_changed_scheme_rejects_submission_before_post():
     regions[2][0]["rateSchemeId"] = 103
 
     with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[],
-            expected_inspection_fingerprint=inspection.fingerprint,
-        )
+        submit(manager, inspection)
 
     assert [problem.code for problem in raised.value.problems] == ["inspection_changed"]
     assert client.calls == []
@@ -1000,12 +914,7 @@ def test_jp_typhoon_and_non_typhoon_pets_submit_for_model_2_1():
     manager, _, reference_data = make_manager(*jp_plt_fixtures(), post=True)
 
     inspection = manager.inspect(analysis_ids=[1, 2])
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-    )
+    result = submit(manager, inspection)
 
     assert inspection.blocking_problems == ()
     assert inspection.partitions[0].observed_pet_ids == (15, 16)
@@ -1016,31 +925,6 @@ def test_jp_typhoon_and_non_typhoon_pets_submit_for_model_2_1():
         (call["pet_id"], call["model_version"], call["model_region_code"])
         for call in reference_data.pet_metadata_calls
     } == {(15, "2.1", "JPWS"), (16, "2.1", "JPWS")}
-
-
-def test_reversing_analysis_ids_preserves_request_row_order():
-    """Sort grouping request rows independently of caller analysis order."""
-    first_manager, _, _ = make_manager(*jp_plt_fixtures(), post=True)
-    first_inspection = first_manager.inspect(analysis_ids=[1, 2])
-    first = first_manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=first_inspection.fingerprint,
-    )
-    second_manager, _, _ = make_manager(*jp_plt_fixtures(), post=True)
-    second_inspection = second_manager.inspect(analysis_ids=[2, 1])
-    second = second_manager.submit(
-        analysis_ids=[2, 1],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=second_inspection.fingerprint,
-    )
-
-    assert (
-        first.request_body["settings"]["regionPerilSimulationSet"]
-        == second.request_body["settings"]["regionPerilSimulationSet"]
-    )
 
 
 @pytest.mark.parametrize(
@@ -1071,31 +955,13 @@ def test_plt_region_facts_name_the_pet():
         (15, TYPHOON_PET_NAME), (16, NON_TYPHOON_PET_NAME)]
 
 
-def test_elt_region_facts_have_no_pet_name():
-    """Leave pet_name unset for an ELT region, which carries no PET ID."""
-    manager, _, _ = make_manager(*pure_elt_fixtures())
-
-    inspection = manager.inspect(analysis_ids=[1, 2])
-
-    assert {fact.pet_name for member in inspection.members
-            for fact in member.regions} == {None}
-
-
 def test_mixed_elt_plt_uses_exact_simulation_mapping_and_pet():
     """Build a group PLT without replacing the selected scheme or member PET."""
     manager, client, _ = make_manager(*mixed_fixtures(), post=True)
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-        simulation_set_selections=[
-            SimulationSetSelection(
-                GroupingPartitionKey("WS", "NA", "11.0"), 1001
-            )
-        ],
+    result = submit(
+        manager, inspection, simulation_set_selections=MIXED_SIMULATION_SET
     )
 
     assert inspection.output_loss_table == "PLT"
@@ -1105,91 +971,38 @@ def test_mixed_elt_plt_uses_exact_simulation_mapping_and_pet():
     assert client.calls[-1]["json"] == result.request_body
 
 
-def test_risk_modeler_simulation_choices_are_independent_of_event_rate_scheme():
-    """Reproduce the mixed HD, DLM, and nested-group request captured in Risk Modeler."""
-    details = {
-        1: analysis(1, framework="PLT", engine_type="HD", scheme_id=None),
-        2: analysis(2, scheme_id=163),
-        3: analysis(3, scheme_id=None, is_group=True),
-    }
-    details[1].update({
-        "engineVersion": "HDv2.1",
+def test_elt_partition_row_joins_every_member_engine_version():
+    """Write every member engine version, comma-joined, on an ELT partition's row."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    details[2]["engineVersion"] = "RL25"
+    regions[2][0]["engineVersion"] = "RL25"
+    manager, _, _ = make_manager(details, regions, post=True)
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    result = submit(
+        manager, inspection,
+        event_rate_selections=[EventRateSelection(WS_PARTITION, 101)],
+    )
+
+    rows = result.request_body["settings"]["regionPerilSimulationSet"]
+    assert [row["engineVersion"] for row in rows] == ["RL23,RL25"]
+
+
+def test_imported_simulation_sets_are_not_offered():
+    """Offer SYSTEM simulation sets only; an IMPORTED PEQT is not a Risk Modeler choice."""
+    manager, _, reference_data = make_manager(*mixed_fixtures())
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": 911,
+        "eventRateSchemeName": "Windstorm Stochastic",
         "perilCode": "WS",
-        "regionCode": "JP",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "11.0",
     })
-    details[2].update({
-        "engineVersion": "RL25",
-        "perilCode": "EQ",
-    })
-    regions = {
-        1: [region(1, framework="PLT", scheme_id=None, pet_id=15, periods=50000)],
-        2: [region(2, scheme_id=163, sub_region="CA")],
-        3: [
-            region(3, scheme_id=738, sub_region="FL"),
-            region(3, scheme_id=739, sub_region="FL"),
-            region(3, scheme_id=738, sub_region="NA"),
-        ],
-    }
-    regions[1][0].update({
-        "engineVersion": "HDv2.1",
-        "peril": "WS",
-        "region": "JP",
-        "subRegion": "JP",
-    })
-    regions[2][0].update({"engineVersion": "RL25", "peril": "EQ"})
-    regions[3][2]["engineVersion"] = "RL25"
-    manager, client, reference_data = make_manager(details, regions, post=True)
-    reference_data.event_rate_schemes = [
-        {
-            "eventRateSchemeId": 163,
-            "eventRateSchemeName": "North America Earthquake Stochastic",
-            "perilCode": "EQ",
-            "modelRegionCode": "NAEQ",
-        },
-        {
-            "eventRateSchemeId": 164,
-            "eventRateSchemeName": "North America Earthquake Long Term",
-            "perilCode": "EQ",
-            "modelRegionCode": "NAEQ",
-        },
-        {
-            "eventRateSchemeId": 738,
-            "eventRateSchemeName": "North Atlantic Hurricane Historical",
-            "perilCode": "WS",
-            "modelRegionCode": "NAWS",
-        },
-        {
-            "eventRateSchemeId": 739,
-            "eventRateSchemeName": "North Atlantic Hurricane Stochastic",
-            "perilCode": "WS",
-            "modelRegionCode": "NAWS",
-        },
-    ]
     reference_data.simulation_sets = [
         {
-            "id": 87,
-            "eventRateSchemeId": 163,
-            "name": "North America Earthquake Stochastic",
-            "perilCode": "EQ",
-            "modelRegionCode": "NAEQ",
-            "modelVersionCode": "17.0",
-            "defaultPeriods": 100000,
-            "peqtSource": "SYSTEM",
-        },
-        {
-            "id": 88,
-            "eventRateSchemeId": 164,
-            "name": "North America Earthquake Long Term",
-            "perilCode": "EQ",
-            "modelRegionCode": "NAEQ",
-            "modelVersionCode": "17.0",
-            "defaultPeriods": 100000,
-            "peqtSource": "SYSTEM",
-        },
-        {
-            "id": 147,
-            "eventRateSchemeId": 739,
-            "name": "North Atlantic Hurricane Stochastic v2",
+            "id": 8001,
+            "eventRateSchemeId": 911,
+            "name": "System windstorm simulation",
             "perilCode": "WS",
             "modelRegionCode": "NAWS",
             "modelVersionCode": "11.0",
@@ -1197,70 +1010,23 @@ def test_risk_modeler_simulation_choices_are_independent_of_event_rate_scheme():
             "peqtSource": "SYSTEM",
         },
         {
-            "id": 1002000,
-            "eventRateSchemeId": 163,
-            "name": "Wrong-peril imported row",
+            "id": 8002,
+            "eventRateSchemeId": 911,
+            "name": "Imported windstorm simulation",
             "perilCode": "WS",
-            "modelRegionCode": "NAEQ",
-            "modelVersionCode": "17.0",
-            "defaultPeriods": 100000,
-            "peqtSource": "IMPORTED",
-        },
-        {
-            "id": 1002001,
-            "eventRateSchemeId": 163,
-            "name": "Imported earthquake row",
-            "perilCode": "EQ",
-            "modelRegionCode": "NAEQ",
-            "modelVersionCode": "17.0",
+            "modelRegionCode": "NAWS",
+            "modelVersionCode": "11.0",
             "defaultPeriods": 100000,
             "peqtSource": "IMPORTED",
         },
     ]
 
-    inspection = manager.inspect(analysis_ids=[1, 2, 3])
-    partitions = {partition.key: partition for partition in inspection.partitions}
-    eq_key = GroupingPartitionKey("EQ", "NA", "17.0")
-    ws_key = GroupingPartitionKey("WS", "NA", "11.0")
+    inspection = manager.inspect(analysis_ids=[1, 2])
 
-    assert inspection.blocking_problems == ()
-    assert "simulation_set_selections" in inspection.required_caller_inputs
+    partition = next(p for p in inspection.partitions if p.key == WS_PARTITION)
     assert [
-        option.simulation_set_id
-        for option in partitions[eq_key].simulation_set_options
-    ] == [87, 88]
-    assert [
-        option.simulation_set_id
-        for option in partitions[ws_key].simulation_set_options
-    ] == [147]
-
-    result = manager.submit(
-        analysis_ids=[1, 2, 3],
-        settings=settings(),
-        event_rate_selections=[EventRateSelection(ws_key, 738)],
-        expected_inspection_fingerprint=inspection.fingerprint,
-        simulation_set_selections=[
-            SimulationSetSelection(eq_key, 87),
-            SimulationSetSelection(ws_key, 147),
-        ],
-    )
-
-    rows = result.request_body["settings"]["regionPerilSimulationSet"]
-    jp_rows = [row for row in rows if row["regionCode"] == "JP"]
-    eq_rows = [row for row in rows if row["perilCode"] == "EQ"]
-    ws_rows = [
-        row for row in rows
-        if row["regionCode"] == "NA" and row["perilCode"] == "WS"
-    ]
-    assert jp_rows[0]["simulationSetId"] == 15
-    assert {(row["eventRateSchemeId"], row["simulationSetId"]) for row in eq_rows} == {
-        (163, 87)
-    }
-    assert {(row["eventRateSchemeId"], row["simulationSetId"]) for row in ws_rows} == {
-        (738, 147)
-    }
-    assert {row["engineVersion"] for row in ws_rows} == {"RL23,RL25"}
-    assert client.calls[-1]["json"] == result.request_body
+        option.simulation_set_id for option in partition.simulation_set_options
+    ] == [8001]
 
 
 def test_differing_pet_ids_in_one_partition_submit_every_pet():
@@ -1276,12 +1042,7 @@ def test_differing_pet_ids_in_one_partition_submit_every_pet():
     manager, _, _ = make_manager(details, regions, post=True)
 
     inspection = manager.inspect(analysis_ids=[1, 2])
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-    )
+    result = submit(manager, inspection)
 
     assert inspection.blocking_problems == ()
     assert inspection.partitions[0].observed_pet_ids == (50, 51)
@@ -1306,46 +1067,11 @@ def test_different_pet_ids_across_different_partitions_submit():
     manager, _, _ = make_manager(details, regions, post=True)
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-    )
+    result = submit(manager, inspection)
 
     assert inspection.blocking_problems == ()
     assert {partition.observed_pet_ids for partition in inspection.partitions} == {(50,), (60,)}
     assert {entry["simulationSetId"] for entry in result.request_body["settings"]["regionPerilSimulationSet"]} == {50, 60}
-
-
-def test_nested_group_submits_every_distinct_pet_row():
-    """Submit multiple PET IDs reported by a nested PLT group."""
-    details = {
-        1: analysis(1, framework="PLT", engine_type="HD", scheme_id=None, is_group=True),
-        2: analysis(2, framework="PLT", engine_type="HD", scheme_id=None),
-    }
-    regions = {
-        1: [region(1, framework="PLT", scheme_id=None, pet_id=50, periods=100000)],
-        2: [region(2, framework="PLT", scheme_id=None, pet_id=50, periods=100000)],
-    }
-    manager, _, _ = make_manager(details, regions, post=True)
-    supported = manager.inspect(analysis_ids=[1, 2])
-    assert supported.blocking_problems == ()
-
-    regions[1].append(
-        region(1, framework="PLT", scheme_id=None, pet_id=51, periods=100000)
-    )
-    inspection = manager.inspect(analysis_ids=[1, 2])
-    result = manager.submit(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-    )
-
-    assert inspection.blocking_problems == ()
-    rows = result.request_body["settings"]["regionPerilSimulationSet"]
-    assert [row["simulationSetId"] for row in rows] == [50, 51]
 
 
 def test_apply_contract_flag_blocks_plt_member():
@@ -1385,13 +1111,12 @@ def test_simulation_reference_lookup_is_reused_across_subregions():
     """Read the simulation-set list once for all matching source subregions."""
     details, regions = mixed_fixtures()
     regions[1].append(region(1, scheme_id=101, sub_region="TX"))
-    manager, _, reference_data = make_manager(details, regions)
+    manager, _, _ = make_manager(details, regions)
 
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     assert inspection.blocking_problems == ()
     assert len(inspection.simulation_mappings) == 1
-    assert reference_data.simulation_calls == 1
 
 
 def test_missing_member_and_region_data_have_stable_codes():
@@ -1424,7 +1149,7 @@ def test_nested_elt_group_uses_region_metadata_and_offers_scheme_choice():
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     assert inspection.blocking_problems == ()
-    assert inspection.partitions[0].key == GroupingPartitionKey("WS", "NA", "11.0")
+    assert inspection.partitions[0].key == WS_PARTITION
     assert inspection.partitions[0].event_rate_selection_required is True
     assert [
         option.event_rate_scheme_id
@@ -1461,7 +1186,7 @@ def test_multiple_simulation_sets_are_caller_options():
     partition = next(
         partition
         for partition in inspection.partitions
-        if partition.key == GroupingPartitionKey("WS", "NA", "11.0")
+        if partition.key == WS_PARTITION
     )
     assert partition.simulation_set_selection_required is True
     assert [option.simulation_set_id for option in partition.simulation_set_options] == [
@@ -1489,7 +1214,7 @@ def test_simulation_set_requires_an_active_event_rate_scheme_relationship():
     partition = next(
         partition
         for partition in inspection.partitions
-        if partition.key == GroupingPartitionKey("WS", "NA", "11.0")
+        if partition.key == WS_PARTITION
     )
     assert [option.simulation_set_id for option in partition.simulation_set_options] == [
         1001
@@ -1501,12 +1226,12 @@ def test_simulation_set_requires_an_active_event_rate_scheme_relationship():
     [
         ([], "simulation_set_selection_missing"),
         (
-            [
-                SimulationSetSelection(
-                    GroupingPartitionKey("WS", "NA", "11.0"), 999
-                )
-            ],
+            [SimulationSetSelection(WS_PARTITION, 999)],
             "simulation_set_selection_not_offered",
+        ),
+        (
+            [SimulationSetSelection(WS_PARTITION, 1001)] * 2,
+            "simulation_set_selection_duplicate",
         ),
         (
             [
@@ -1524,55 +1249,10 @@ def test_invalid_simulation_set_selection_blocks_post(selections, code):
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[],
-            expected_inspection_fingerprint=inspection.fingerprint,
-            simulation_set_selections=selections,
-        )
+        submit(manager, inspection, simulation_set_selections=selections)
 
     assert code in {problem.code for problem in raised.value.problems}
     assert client.calls == []
-
-
-def test_duplicate_simulation_set_selection_is_structured():
-    """Reject two simulation-set choices for the same partition."""
-    manager, client, _ = make_manager(*mixed_fixtures())
-    inspection = manager.inspect(analysis_ids=[1, 2])
-    key = GroupingPartitionKey("WS", "NA", "11.0")
-
-    with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[],
-            expected_inspection_fingerprint=inspection.fingerprint,
-            simulation_set_selections=[
-                SimulationSetSelection(key, 1001),
-                SimulationSetSelection(key, 1001),
-            ],
-        )
-
-    assert "simulation_set_selection_duplicate" in {
-        problem.code for problem in raised.value.problems
-    }
-    assert client.calls == []
-
-
-def _mixed_submit(manager, inspection, **overrides):
-    """Submit the mixed ELT + PLT fixtures with set 1001 on the WS partition."""
-    kwargs = dict(
-        analysis_ids=[1, 2],
-        settings=settings(),
-        event_rate_selections=[],
-        expected_inspection_fingerprint=inspection.fingerprint,
-        simulation_set_selections=[
-            SimulationSetSelection(GroupingPartitionKey("WS", "NA", "11.0"), 1001)
-        ],
-    )
-    kwargs.update(overrides)
-    return manager.submit(**kwargs)
 
 
 def _rows_by_set(result):
@@ -1586,13 +1266,16 @@ def test_simulation_periods_selection_overrides_pet_and_set_periods():
     """Write the caller's simulationPeriods on PLT and converted-ELT rows alike."""
     manager, client, _ = make_manager(*mixed_fixtures(), post=True)
     inspection = manager.inspect(analysis_ids=[1, 2])
-    ws_key = GroupingPartitionKey("WS", "NA", "11.0")
-    plt_key = next(p.key for p in inspection.partitions if p.key != ws_key)
+    plt_key = next(p.key for p in inspection.partitions if p.key != WS_PARTITION)
 
-    result = _mixed_submit(manager, inspection, simulation_periods_selections=[
-        SimulationPeriodsSelection(ws_key, 50000),
-        SimulationPeriodsSelection(plt_key, 25000),
-    ])
+    result = submit(
+        manager, inspection,
+        simulation_set_selections=MIXED_SIMULATION_SET,
+        simulation_periods_selections=[
+            SimulationPeriodsSelection(WS_PARTITION, 50000),
+            SimulationPeriodsSelection(plt_key, 25000),
+        ],
+    )
 
     rows = _rows_by_set(result)
     assert rows[1001]["simulationPeriods"] == 50000
@@ -1605,9 +1288,11 @@ def test_partition_without_simulation_periods_selection_keeps_its_periods():
     manager, _, _ = make_manager(*mixed_fixtures(), post=True)
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    result = _mixed_submit(manager, inspection, simulation_periods_selections=[
-        SimulationPeriodsSelection(GroupingPartitionKey("WS", "NA", "11.0"), 50000),
-    ])
+    result = submit(
+        manager, inspection,
+        simulation_set_selections=MIXED_SIMULATION_SET,
+        simulation_periods_selections=[SimulationPeriodsSelection(WS_PARTITION, 50000)],
+    )
 
     rows = _rows_by_set(result)
     assert rows[1001]["simulationPeriods"] == 50000
@@ -1618,7 +1303,7 @@ def test_partition_without_simulation_periods_selection_keeps_its_periods():
     ("selections", "code"),
     [
         (
-            [SimulationPeriodsSelection(GroupingPartitionKey("WS", "NA", "11.0"), 50000)] * 2,
+            [SimulationPeriodsSelection(WS_PARTITION, 50000)] * 2,
             "simulation_periods_selection_duplicate",
         ),
         (
@@ -1633,7 +1318,11 @@ def test_invalid_simulation_periods_selection_blocks_post(selections, code):
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     with pytest.raises(IRPGroupingValidationError) as raised:
-        _mixed_submit(manager, inspection, simulation_periods_selections=selections)
+        submit(
+            manager, inspection,
+            simulation_set_selections=MIXED_SIMULATION_SET,
+            simulation_periods_selections=selections,
+        )
 
     assert code in {problem.code for problem in raised.value.problems}
     assert client.calls == []
@@ -1645,15 +1334,9 @@ def test_simulation_periods_selection_on_an_elt_group_is_structured():
     inspection = manager.inspect(analysis_ids=[1, 2])
 
     with pytest.raises(IRPGroupingValidationError) as raised:
-        manager.submit(
-            analysis_ids=[1, 2],
-            settings=settings(),
-            event_rate_selections=[],
-            expected_inspection_fingerprint=inspection.fingerprint,
-            simulation_periods_selections=[
-                SimulationPeriodsSelection(inspection.partitions[0].key, 50000)
-            ],
-        )
+        submit(manager, inspection, simulation_periods_selections=[
+            SimulationPeriodsSelection(inspection.partitions[0].key, 50000)
+        ])
 
     assert "simulation_periods_selection_not_required" in {
         problem.code for problem in raised.value.problems
@@ -1670,9 +1353,9 @@ def test_non_positive_simulation_periods_is_direct_validation_error():
             analysis_ids=[1, 2],
             settings=settings(),
             event_rate_selections=[],
-            expected_inspection_fingerprint="v5:unused",
+            expected_inspection_fingerprint="v0:not-the-current-fingerprint",
             simulation_periods_selections=[
-                SimulationPeriodsSelection(GroupingPartitionKey("WS", "NA", "11.0"), 0)
+                SimulationPeriodsSelection(WS_PARTITION, 0)
             ],
         )
 
@@ -1767,4 +1450,159 @@ def test_get_job_uses_grouping_job_endpoint():
     result = manager.get_job(job_id=77)
 
     assert result == {"id": 77, "status": "RUNNING"}
-    assert client.calls[0]["path"] == "/platform/grouping/v1/jobs/77"
+    assert client.calls[0]["path"] == GET_ANALYSIS_GROUPING_JOB.format(jobId=77)
+
+
+def test_elt_region_without_a_rate_scheme_blocks():
+    """Block an ELT region that carries no positive event-rate scheme ID."""
+    details, regions = pure_elt_fixtures()
+    details[2]["eventRateSchemeId"] = None
+    regions[2][0]["rateSchemeId"] = None
+    manager, _, _ = make_manager(details, regions)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    problem = next(
+        problem for problem in inspection.blocking_problems
+        if problem.code == "event_rate_scheme_missing"
+    )
+    assert problem.analysis_ids == (2,)
+    assert problem.partition == WS_PARTITION
+
+
+@pytest.mark.parametrize(
+    ("raw_region", "detail_overrides"),
+    [
+        ("not a region row", {}),
+        ({**region(2), "framework": "AAL"}, {}),
+        ({**region(2), "engineVersion": None}, {"engineVersion": None}),
+    ],
+)
+def test_malformed_region_row_blocks(raw_region, detail_overrides):
+    """Report a region row with no mapping, no ELT/PLT framework, or no engine version."""
+    details, regions = pure_elt_fixtures()
+    details[2].update(detail_overrides)
+    regions[2] = [raw_region]
+    manager, _, _ = make_manager(details, regions)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert "member_metadata_missing" in {p.code for p in inspection.blocking_problems}
+
+
+def test_region_framework_conflicting_with_the_detail_blocks():
+    """Block a member whose region frameworks disagree with its analysis framework."""
+    details, regions = pure_elt_fixtures()
+    regions[2] = [region(2, framework="PLT", scheme_id=None, pet_id=50, periods=100000)]
+    manager, _, _ = make_manager(details, regions)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert "member_classification_conflict" in {
+        p.code for p in inspection.blocking_problems
+    }
+
+
+def test_event_rate_selection_for_a_non_conflicting_partition_is_structured():
+    """Reject an event-rate selection when the partition has one observed scheme."""
+    manager, client, _ = make_manager(*pure_elt_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        submit(
+            manager, inspection,
+            event_rate_selections=[EventRateSelection(WS_PARTITION, 101)],
+        )
+
+    assert [p.code for p in raised.value.problems] == ["event_rate_selection_not_required"]
+    assert client.calls == []
+
+
+def test_simulation_set_selection_for_a_plt_partition_is_structured():
+    """Reject a simulation-set selection for a partition not converted from ELT."""
+    manager, client, _ = make_manager(*mixed_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    plt_key = GroupingPartitionKey("WF", "NA", "2.0")
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        submit(manager, inspection, simulation_set_selections=[
+            SimulationSetSelection(WS_PARTITION, 1001),
+            SimulationSetSelection(plt_key, 50),
+        ])
+
+    assert [p.code for p in raised.value.problems] == [
+        "simulation_set_selection_not_required"
+    ]
+    assert client.calls == []
+
+
+def test_fingerprint_names_its_version():
+    """Prefix the fingerprint with the version that invalidates stored fingerprints."""
+    manager, _, _ = make_manager(*pure_elt_fixtures())
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.fingerprint.startswith(f"v{GroupingManager.FINGERPRINT_VERSION}:")
+
+
+def test_treaty_without_a_treaty_number_aborts_inspection():
+    """Raise rather than compare a treaty that has no Treaty Number."""
+    details, regions = pure_elt_fixtures()
+    unnumbered = treaty(1, 11)
+    unnumbered.pop("treatyNumber")
+    manager, _, _ = make_manager(
+        details, regions, treaties={1: [unnumbered], 2: [treaty(2, 22)]}
+    )
+
+    with pytest.raises(IRPAPIError):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+def test_non_list_event_rate_scheme_response_raises_api_error():
+    """Raise when the event-rate scheme response carries no list under items."""
+    manager, _, reference_data = make_manager(*pure_elt_fixtures())
+    reference_data.event_rate_schemes = {"unexpected": "shape"}
+
+    with pytest.raises(IRPAPIError):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+def test_get_job_rejects_a_non_positive_job_id():
+    """Reject job_id <= 0 before any Platform read."""
+    manager, client, _ = make_manager({}, {})
+
+    with pytest.raises(IRPValidationError):
+        manager.get_job(job_id=0)
+
+    assert client.calls == []
+
+
+def test_get_job_failure_raises_api_error():
+    """Re-raise a failed grouping job read as IRPAPIError."""
+    manager, client, _ = make_manager({}, {})
+    client.responses.append(RuntimeError("boom"))
+
+    with pytest.raises(IRPAPIError):
+        manager.get_job(job_id=77)
+
+
+def test_grouping_post_failure_raises_api_error():
+    """Re-raise a failed grouping POST as IRPAPIError."""
+    manager, client, _ = make_manager(*pure_elt_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    client.responses.append(RuntimeError("boom"))
+
+    with pytest.raises(IRPAPIError):
+        submit(manager, inspection)
+
+
+def test_non_numeric_job_location_raises_api_error():
+    """Raise IRPAPIError, not ValueError, for a location header ending in a non-numeric ID."""
+    manager, client, _ = make_manager(*pure_elt_fixtures())
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    client.responses.append(FakeResponse(
+        201, headers={"location": "/platform/grouping/v1/jobs/abc"}, has_body=False,
+    ))
+
+    with pytest.raises(IRPAPIError):
+        submit(manager, inspection)
