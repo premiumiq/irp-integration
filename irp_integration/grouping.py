@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, TYPE_CHE
 from .constants import CREATE_ANALYSIS_GROUP, GET_ANALYSIS_GROUPING_JOB, GET_ANALYSIS_RESULT
 from .exceptions import IRPAPIError, IRPGroupingValidationError, IRPValidationError
 from .utils import extract_id_from_location_header
+from .validators import validate_non_empty_string, validate_positive_int
 
 if TYPE_CHECKING:
     from . import IRPClient
@@ -478,8 +479,9 @@ class GroupingManager:
         periods_selections = self._validate_simulation_periods_selection_arguments(
             simulation_periods_selections
         )
-        if not _text(expected_inspection_fingerprint):
-            raise IRPValidationError("expected_inspection_fingerprint must be a non-empty string")
+        validate_non_empty_string(
+            expected_inspection_fingerprint, "expected_inspection_fingerprint"
+        )
 
         inspection = self._inspect(normalized_ids)
         if inspection.fingerprint != expected_inspection_fingerprint:
@@ -528,8 +530,7 @@ class GroupingManager:
             IRPValidationError: If job_id is invalid
             IRPAPIError: If the Platform read fails
         """
-        if not _positive_int(job_id):
-            raise IRPValidationError("job_id must be a positive integer")
+        validate_positive_int(job_id, "job_id")
         try:
             response = self.client.request(
                 "GET", GET_ANALYSIS_GROUPING_JOB.format(jobId=job_id)
@@ -549,8 +550,8 @@ class GroupingManager:
         normalized = tuple(analysis_ids)
         if len(normalized) < 2:
             raise IRPValidationError("analysis_ids must contain at least two analysis IDs")
-        if any(not _positive_int(value) for value in normalized):
-            raise IRPValidationError("analysis_ids must contain only positive integers")
+        for index, value in enumerate(normalized):
+            validate_positive_int(value, f"analysis_ids[{index}]")
         if len(set(normalized)) != len(normalized):
             raise IRPValidationError("analysis_ids must contain distinct analysis IDs")
         return normalized
@@ -559,17 +560,14 @@ class GroupingManager:
     def _validate_settings(settings: GroupingSettings) -> None:
         if not isinstance(settings, GroupingSettings):
             raise IRPValidationError("settings must be a GroupingSettings instance")
-        if not _text(settings.analysis_name):
-            raise IRPValidationError("settings.analysis_name must be a non-empty string")
+        validate_non_empty_string(settings.analysis_name, "settings.analysis_name")
         if not isinstance(settings.currency, GroupingCurrency):
             raise IRPValidationError("settings.currency must be a GroupingCurrency instance")
         for name in ("code", "scheme", "vintage", "as_of_date"):
-            if not _text(getattr(settings.currency, name)):
-                raise IRPValidationError(f"settings.currency.{name} must be a non-empty string")
+            validate_non_empty_string(getattr(settings.currency, name), f"settings.currency.{name}")
         if not isinstance(settings.propagate_detailed_losses, bool):
             raise IRPValidationError("settings.propagate_detailed_losses must be a boolean")
-        if not _positive_int(settings.num_of_simulations):
-            raise IRPValidationError("settings.num_of_simulations must be a positive integer")
+        validate_positive_int(settings.num_of_simulations, "settings.num_of_simulations")
         for name in (
             "description",
             "reporting_window_start",
@@ -594,16 +592,18 @@ class GroupingManager:
                 )
             if not isinstance(selection.partition, GroupingPartitionKey):
                 raise IRPValidationError("selection.partition must be a GroupingPartitionKey")
-            if not all((
-                _text(selection.partition.peril_code),
-                _text(selection.partition.region_code),
-                _text(selection.partition.model_version),
-            )):
-                raise IRPValidationError("selection.partition fields must be non-empty strings")
-            if not _positive_int(selection.event_rate_scheme_id):
-                raise IRPValidationError(
-                    "selection.event_rate_scheme_id must be a positive integer"
-                )
+            validate_non_empty_string(
+                selection.partition.peril_code, "selection.partition.peril_code"
+            )
+            validate_non_empty_string(
+                selection.partition.region_code, "selection.partition.region_code"
+            )
+            validate_non_empty_string(
+                selection.partition.model_version, "selection.partition.model_version"
+            )
+            validate_positive_int(
+                selection.event_rate_scheme_id, "selection.event_rate_scheme_id"
+            )
         return normalized
 
     @staticmethod
@@ -620,16 +620,18 @@ class GroupingManager:
                 )
             if not isinstance(selection.partition, GroupingPartitionKey):
                 raise IRPValidationError("selection.partition must be a GroupingPartitionKey")
-            if not all((
-                _text(selection.partition.peril_code),
-                _text(selection.partition.region_code),
-                _text(selection.partition.model_version),
-            )):
-                raise IRPValidationError("selection.partition fields must be non-empty strings")
-            if not _positive_int(selection.simulation_set_id):
-                raise IRPValidationError(
-                    "selection.simulation_set_id must be a positive integer"
-                )
+            validate_non_empty_string(
+                selection.partition.peril_code, "selection.partition.peril_code"
+            )
+            validate_non_empty_string(
+                selection.partition.region_code, "selection.partition.region_code"
+            )
+            validate_non_empty_string(
+                selection.partition.model_version, "selection.partition.model_version"
+            )
+            validate_positive_int(
+                selection.simulation_set_id, "selection.simulation_set_id"
+            )
         return normalized
 
     @staticmethod
@@ -647,16 +649,18 @@ class GroupingManager:
                 )
             if not isinstance(selection.partition, GroupingPartitionKey):
                 raise IRPValidationError("selection.partition must be a GroupingPartitionKey")
-            if not all((
-                _text(selection.partition.peril_code),
-                _text(selection.partition.region_code),
-                _text(selection.partition.model_version),
-            )):
-                raise IRPValidationError("selection.partition fields must be non-empty strings")
-            if not _positive_int(selection.simulation_periods):
-                raise IRPValidationError(
-                    "selection.simulation_periods must be a positive integer"
-                )
+            validate_non_empty_string(
+                selection.partition.peril_code, "selection.partition.peril_code"
+            )
+            validate_non_empty_string(
+                selection.partition.region_code, "selection.partition.region_code"
+            )
+            validate_non_empty_string(
+                selection.partition.model_version, "selection.partition.model_version"
+            )
+            validate_positive_int(
+                selection.simulation_periods, "selection.simulation_periods"
+            )
         return normalized
 
     def _inspect(self, analysis_ids: Tuple[int, ...]) -> GroupingInspection:
