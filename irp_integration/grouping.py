@@ -951,7 +951,7 @@ class GroupingManager:
         dlm_only_elt_group = (
             output_loss_table == "ELT"
             and all(
-                member.exists and member.engine_type == "DLM"
+                member.exists and (member.engine_type or "").upper() == "DLM"
                 for member in members
             )
         )
