@@ -357,7 +357,7 @@ class AnalysisManager:
         try:
             response = self.client.request('POST', CREATE_ANALYSIS_JOB, json=data)
             job_id = extract_id_from_location_header(response, "analysis job submission")
-            logger.info("Analysis job submitted â€” job ID: %s", job_id)
+            logger.info("Analysis job submitted — job ID: %s", job_id)
             return int(job_id), data
         except Exception as e:
             raise IRPAPIError(f"Failed to submit analysis job '{job_name}' for portfolio {portfolio_name}: {e}")
@@ -1037,7 +1037,7 @@ class AnalysisManager:
         try:
             response = self.client.request('POST', CREATE_EXPORT_JOB, json=data)
             job_id = extract_id_from_location_header(response, "analysis export job")
-            logger.info("Analysis export job submitted â€” job ID: %s", job_id)
+            logger.info("Analysis export job submitted — job ID: %s", job_id)
             return int(job_id), data
         except IRPAPIError:
             raise
