@@ -122,7 +122,10 @@ scheme with the partition's `perilCode`, `modelRegionCode`, and
 `modelVersionCode`, including applicable schemes not used by a selected member.
 Other conflicting groups retain the peril and model-region comparison. A
 partition with one observed scheme keeps the observed scheme and requires no
-caller selection. Risk Modeler reference data provides the option labels.
+caller selection. A conflicting partition that no applicable active scheme
+matches returns `event_rate_scheme_mapping_missing` in
+`inspection.blocking_problems`. Risk Modeler reference data provides the option
+labels.
 
 The package owns no event-rate or simulation-set preferences or defaults. The
 package does not choose simulation counts, currency, detailed-loss settings,

@@ -2276,7 +2276,7 @@ Treaty comparison includes cedant, treaty type, currency, attachment and limit t
 
 Event-rate scheme returned for a grouping partition.
 
-In a DLM-only ELT group, a conflicting partition receives every active Risk Modeler scheme with the partition's ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. Other conflicting groups retain the peril and model-region comparison. A non-conflicting partition receives its resolved observed scheme.
+In a DLM-only ELT group, a conflicting partition receives every active Risk Modeler scheme with the partition's ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. Other conflicting groups retain the peril and model-region comparison. A non-conflicting partition receives its resolved observed scheme. A conflicting partition with no applicable active scheme receives no options and reports ``event_rate_scheme_mapping_missing`` in ``blocking_problems``.
 
 #### `__init__`
 
@@ -2509,6 +2509,8 @@ def __init__(
 *Bases:* `builtins.str, enum.Enum`
 
 Stable codes returned for rule-based grouping problems.
+
+``EVENT_RATE_SCHEME_MISSING`` reports one ELT region that carries no positive ``eventRateSchemeId``. ``EVENT_RATE_SCHEME_MAPPING_MISSING`` reports a partition whose members disagree on their event-rate scheme and for which no active reference row carries the partition's ``perilCode``, ``modelRegionCode``, and, for a DLM-only ELT group, ``modelVersionCode``. The partition then has no option to offer, so the problem is returned in ``blocking_problems`` and ``submit`` refuses the group.
 
 ### `class GroupingRegionFact`
 

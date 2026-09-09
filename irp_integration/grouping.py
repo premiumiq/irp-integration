@@ -43,7 +43,18 @@ if TYPE_CHECKING:
 
 
 class GroupingProblemCode(str, Enum):
-    """Stable codes returned for rule-based grouping problems."""
+    """
+    Stable codes returned for rule-based grouping problems.
+
+    ``EVENT_RATE_SCHEME_MISSING`` reports one ELT region that carries no
+    positive ``eventRateSchemeId``. ``EVENT_RATE_SCHEME_MAPPING_MISSING``
+    reports a partition whose members disagree on their event-rate scheme
+    and for which no active reference row carries the partition's
+    ``perilCode``, ``modelRegionCode``, and, for a DLM-only ELT group,
+    ``modelVersionCode``. The partition then has no option to offer, so the
+    problem is returned in ``blocking_problems`` and ``submit`` refuses the
+    group.
+    """
 
     INSPECTION_CHANGED = "inspection_changed"
     MEMBER_NOT_FOUND = "member_not_found"
@@ -53,6 +64,7 @@ class GroupingProblemCode(str, Enum):
     MODEL_VERSION_MAPPING_MISSING = "model_version_mapping_missing"
     MODEL_VERSION_MAPPING_AMBIGUOUS = "model_version_mapping_ambiguous"
     EVENT_RATE_SCHEME_MISSING = "event_rate_scheme_missing"
+    EVENT_RATE_SCHEME_MAPPING_MISSING = "event_rate_scheme_mapping_missing"
     EVENT_RATE_SELECTION_MISSING = "event_rate_selection_missing"
     EVENT_RATE_SELECTION_DUPLICATE = "event_rate_selection_duplicate"
     EVENT_RATE_SELECTION_UNKNOWN_PARTITION = "event_rate_selection_unknown_partition"
@@ -86,13 +98,16 @@ class GroupingPartitionKey:
 
 @dataclass(frozen=True)
 class EventRateSchemeOption:
-    """Event-rate scheme returned for a grouping partition.
+    """
+    Event-rate scheme returned for a grouping partition.
 
     In a DLM-only ELT group, a conflicting partition receives every active Risk
     Modeler scheme with the partition's ``perilCode``, ``modelRegionCode``, and
     ``modelVersionCode``. Other conflicting groups retain the peril and
     model-region comparison. A non-conflicting partition receives its resolved
-    observed scheme.
+    observed scheme. A conflicting partition with no applicable active scheme
+    receives no options and reports ``event_rate_scheme_mapping_missing`` in
+    ``blocking_problems``.
     """
 
     event_rate_scheme_id: int
@@ -1011,6 +1026,18 @@ class GroupingManager:
                     EventRateSchemeOption(scheme_id, applicable_schemes[scheme_id])
                     for scheme_id in sorted(applicable_schemes)
                 )
+                if not applicable_schemes:
+                    problems.append(GroupingProblem(
+                        code=GroupingProblemCode.EVENT_RATE_SCHEME_MAPPING_MISSING.value,
+                        message=(
+                            "No active event-rate scheme is available for the "
+                            f"conflicting partition with peril {key.peril_code}, "
+                            f"region {key.region_code}, and model version "
+                            f"{key.model_version}."
+                        ),
+                        analysis_ids=tuple(sorted({fact.analysis_id for fact in elt_facts})),
+                        partition=key,
+                    ))
             else:
                 event_rate_options = tuple(
                     EventRateSchemeOption(
