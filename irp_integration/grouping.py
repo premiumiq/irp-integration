@@ -394,7 +394,7 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 7
+    FINGERPRINT_VERSION = 8
 
     LOSS_AFFECTING_TREATY_FIELDS = (
         "cedant",
@@ -1363,7 +1363,22 @@ class GroupingManager:
             "output_loss_table": output_loss_table,
             "simulate_to_plt": simulate_to_plt,
             "partitions": partition_payload,
-            "simulation_mappings": [asdict(mapping) for mapping in mappings],
+            "simulation_mappings": [
+                asdict(mapping)
+                for mapping in sorted(
+                    mappings,
+                    key=lambda mapping: (
+                        mapping.partition.peril_code,
+                        mapping.partition.region_code,
+                        mapping.partition.model_version,
+                        mapping.simulation_set_id,
+                        mapping.event_rate_scheme_id,
+                        mapping.simulation_periods,
+                        mapping.engine_version,
+                        mapping.model_region_code,
+                    ),
+                )
+            ],
             "treaties": sorted(
                 treaties,
                 key=lambda treaty: (
