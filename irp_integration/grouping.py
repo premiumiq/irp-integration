@@ -844,7 +844,6 @@ class GroupingManager:
                 period_value = _field(raw_region, "periods", "simulationPeriods")
                 periods = int(period_value) if _positive_int(period_value) else None
 
-                resolved_version: Optional[str] = None
                 if framework == "PLT":
                     if pet_id is None:
                         problems.append(GroupingProblem(
@@ -875,24 +874,15 @@ class GroupingManager:
                     ))
                     continue
 
-                if resolved_version is None:
-                    resolved_version, version_error = model_version(engine, region, peril)
-                    if version_error is not None:
-                        code = (GroupingProblemCode.MODEL_VERSION_MAPPING_AMBIGUOUS.value
-                                if "multiple" in str(version_error).lower()
-                                else GroupingProblemCode.MODEL_VERSION_MAPPING_MISSING.value)
-                        problems.append(GroupingProblem(
-                            code=code,
-                            message=(f"Model version for analysis {analysis_id}, engine {engine}, "
-                                     f"region {region}, and peril {peril} was not resolved exactly."),
-                            analysis_ids=(analysis_id,),
-                        ))
-                        continue
-
-                if resolved_version is None:
+                resolved_version, version_error = model_version(engine, region, peril)
+                if version_error is not None or resolved_version is None:
+                    code = (GroupingProblemCode.MODEL_VERSION_MAPPING_AMBIGUOUS.value
+                            if "multiple" in str(version_error).lower()
+                            else GroupingProblemCode.MODEL_VERSION_MAPPING_MISSING.value)
                     problems.append(GroupingProblem(
-                        code=GroupingProblemCode.MODEL_VERSION_MAPPING_MISSING.value,
-                        message=f"Analysis {analysis_id} has no resolved model version.",
+                        code=code,
+                        message=(f"Model version for analysis {analysis_id}, engine {engine}, "
+                                 f"region {region}, and peril {peril} was not resolved exactly."),
                         analysis_ids=(analysis_id,),
                     ))
                     continue
@@ -906,10 +896,6 @@ class GroupingManager:
                     )
                     if pet is not None:
                         pet_name = _text(pet.get("petName"))
-                        pet_model_region = _text(pet.get("modelRegionCode"))
-                        if pet_model_region and len(pet_model_region) >= 3:
-                            peril = pet_model_region[-2:]
-                            region = pet_model_region[:-2]
 
                 if framework == "ELT" and scheme_id is None:
                     problems.append(GroupingProblem(
