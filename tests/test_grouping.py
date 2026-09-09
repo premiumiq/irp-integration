@@ -557,7 +557,7 @@ def test_conflicting_pure_elt_requires_one_applicable_scheme():
 
 
 def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme():
-    """Match perilCode and modelRegionCode without checking modelVersionCode."""
+    """Offer an unobserved scheme matching all DLM partition codes."""
     manager, client, reference_data = make_manager(
         *pure_elt_fixtures(conflicting=True), post=True
     )
@@ -567,7 +567,7 @@ def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme()
             "eventRateSchemeName": "Applicable but unobserved",
             "perilCode": "WS",
             "modelRegionCode": "NAWS",
-            "modelVersionCode": "10.0",
+            "modelVersionCode": "11.0",
             "isDefault": True,
         },
         {
@@ -610,6 +610,91 @@ def test_conflicting_partition_offers_and_submits_unobserved_applicable_scheme()
         "eventRateSchemeId"
     ] == 103
     assert result.request_body == client.calls[-1]["json"]
+
+
+def test_dlm_only_group_matches_event_rates_by_model_version():
+    """Return the seven NAEQ 17.0 choices and exclude NAEQ 9.0 schemes."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    details[1].update({"perilCode": "EQ", "eventRateSchemeId": 164})
+    details[2].update({"perilCode": "EQ", "eventRateSchemeId": 163})
+    for raw_region in regions[1]:
+        raw_region.update({"peril": "EQ", "rateSchemeId": 164})
+    for raw_region in regions[2]:
+        raw_region.update({"peril": "EQ", "rateSchemeId": 163})
+    manager, _, reference_data = make_manager(details, regions)
+    current_ids = [163, 164, 166, 167, 168, 5080, 5100]
+    old_ids = [34, 35, 45, 46, 47]
+    reference_data.event_rate_schemes = [
+        {
+            "eventRateSchemeId": scheme_id,
+            "eventRateSchemeName": f"NAEQ scheme {scheme_id}",
+            "perilCode": "EQ",
+            "modelRegionCode": "NAEQ",
+            "modelVersionCode": "17.0" if scheme_id in current_ids else "9.0",
+        }
+        for scheme_id in old_ids + current_ids
+    ]
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    partition = inspection.partitions[0]
+    assert partition.key == GroupingPartitionKey("EQ", "NA", "17.0")
+    assert [
+        option.event_rate_scheme_id
+        for option in partition.event_rate_scheme_options
+    ] == current_ids
+
+
+def test_dlm_only_group_rejects_scheme_for_another_model_version():
+    """Reject a same-peril and same-region scheme from another model version."""
+    manager, client, reference_data = make_manager(
+        *pure_elt_fixtures(conflicting=True)
+    )
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": 103,
+        "eventRateSchemeName": "Earlier model version",
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "10.0",
+    })
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    with pytest.raises(IRPGroupingValidationError) as raised:
+        manager.submit(
+            analysis_ids=[1, 2],
+            settings=settings(),
+            event_rate_selections=[
+                EventRateSelection(inspection.partitions[0].key, 103)
+            ],
+            expected_inspection_fingerprint=inspection.fingerprint,
+        )
+
+    assert [problem.code for problem in raised.value.problems] == [
+        "event_rate_selection_not_offered"
+    ]
+    assert client.calls == []
+
+
+def test_hd_group_retains_event_rate_comparison_without_model_version():
+    """Leave HD conflicting event-rate options unchanged."""
+    details, regions = pure_elt_fixtures(conflicting=True)
+    for detail in details.values():
+        detail["engineType"] = "HD"
+    manager, _, reference_data = make_manager(details, regions)
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": 103,
+        "eventRateSchemeName": "Different model version",
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "10.0",
+    })
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert [
+        option.event_rate_scheme_id
+        for option in inspection.partitions[0].event_rate_scheme_options
+    ] == [101, 102, 103]
 
 
 def test_is_default_does_not_select_a_scheme_for_a_conflict():
@@ -836,6 +921,7 @@ def test_event_rate_option_ids_change_the_fingerprint():
         "eventRateSchemeName": "New applicable scheme",
         "perilCode": "WS",
         "modelRegionCode": "NAWS",
+        "modelVersionCode": "11.0",
     })
 
     second = manager.inspect(analysis_ids=[1, 2])

@@ -2268,7 +2268,7 @@ Rules-based analysis grouping operations.
 
 Grouping uses an inspect-then-submit contract. Inspection reads analyses, regions, treaties, and reference mappings without creating a Platform job. Submission repeats the inspection, compares its deterministic fingerprint, validates the caller's explicit choices, and posts the resulting request immediately. Treaties with the same Treaty Number and different loss-affecting terms produce warnings but do not block submission.
 
-Member event-rate schemes are facts used to detect a conflict. For a conflicting partition, inspection returns every active Risk Modeler event-rate scheme with the partition's ``perilCode`` and ``modelRegionCode``. Inspection selects no default. Simulation-set choices match the partition and resolve through an active event-rate scheme reference row; a simulation set's ``eventRateSchemeId`` does not constrain the caller's event-rate selection.
+Member event-rate schemes are facts used to detect a conflict. For a conflicting DLM-only ELT group, inspection returns every active Risk Modeler event-rate scheme with the partition's ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. Other conflicting groups retain the peril and model-region comparison. Inspection selects no default. Simulation-set choices match the partition and resolve through an active event-rate scheme reference row; a simulation set's ``eventRateSchemeId`` does not constrain the caller's event-rate selection.
 
 Treaty comparison includes cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, and loss occurrences. Each warning carries the compared analysis treaty rows. Treaty comparison excludes treaty IDs, display names, producers, premiums, user-defined fields, tags, and URIs.
 
@@ -2276,7 +2276,7 @@ Treaty comparison includes cedant, treaty type, currency, attachment and limit t
 
 Event-rate scheme returned for a grouping partition.
 
-A conflicting partition receives every active Risk Modeler scheme with the partition's ``perilCode`` and ``modelRegionCode``. A non-conflicting partition receives its resolved observed scheme.
+In a DLM-only ELT group, a conflicting partition receives every active Risk Modeler scheme with the partition's ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. Other conflicting groups retain the peril and model-region comparison. A non-conflicting partition receives its resolved observed scheme.
 
 #### `__init__`
 
@@ -2456,7 +2456,7 @@ def __init__(
 
 Risk Modeler choices and observed member facts for one partition.
 
-Member event-rate schemes determine whether ``event_rate_selection_required`` is true. When member schemes conflict, ``event_rate_scheme_options`` contains every active Risk Modeler scheme with the partition's ``perilCode`` and ``modelRegionCode``. With one observed member scheme, the observed scheme remains resolved and no caller selection is required. ``simulation_set_options`` contains the simulation sets Risk Modeler presents for the partition. The package applies no preference or default to either choice.
+Member event-rate schemes determine whether ``event_rate_selection_required`` is true. When member schemes conflict, ``event_rate_scheme_options`` for a DLM-only ELT group contains every active Risk Modeler scheme with the partition's ``perilCode``, ``modelRegionCode``, and ``modelVersionCode``. Other conflicting groups retain the peril and model-region comparison. With one observed member scheme, the observed scheme remains resolved and no caller selection is required. ``simulation_set_options`` contains the simulation sets Risk Modeler presents for the partition. The package applies no preference or default to either choice.
 
 #### `__init__`
 
