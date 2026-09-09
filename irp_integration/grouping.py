@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING, TypeGuard
 
-from .constants import CREATE_ANALYSIS_GROUP, GET_ANALYSIS_GROUPING_JOB
+from .constants import CREATE_ANALYSIS_GROUP, GET_ANALYSIS_GROUPING_JOB, GET_ANALYSIS_RESULT
 from .exceptions import IRPAPIError, IRPGroupingValidationError, IRPValidationError
 from .utils import extract_id_from_location_header
 
@@ -1118,7 +1118,7 @@ class GroupingManager:
 
         inspected_at = datetime.now(timezone.utc).isoformat()
         resource_uris = tuple(
-            f"/platform/riskdata/v1/analyses/{analysis_id}" for analysis_id in analysis_ids
+            GET_ANALYSIS_RESULT.format(analysisId=analysis_id) for analysis_id in analysis_ids
         )
         fingerprint = self._fingerprint(
             analysis_ids=analysis_ids,
