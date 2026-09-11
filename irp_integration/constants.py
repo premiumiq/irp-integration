@@ -135,6 +135,29 @@ PERSPECTIVE_CODES = [
     'TY', 'UC', 'VA', 'VL', 'VP', 'VT', 'VY', 'WX',
 ]
 
+# Accumulation endpoints
+SEARCH_ACCUMULATION_PROFILES = '/platform/accumulation/v1/profiles'
+GET_ACCUMULATION_PROFILE = '/platform/accumulation/v1/profiles/{profileId}'
+CREATE_ACCUMULATION_JOB = '/platform/accumulation/v1/jobs'
+SEARCH_ACCUMULATION_JOBS = '/platform/accumulation/v1/jobs'
+GET_ACCUMULATION_JOB = '/platform/accumulation/v1/jobs/{jobId}'
+
+# engineType reported by /platform/riskdata/v1/analyses for an accumulation result
+ACCUMULATION_ENGINE_TYPE = 'Accumulation'
+
+# settings.eventInfo.eventDateBehavior values accepted by Create accumulation job
+# for a portfolio resource
+ACCUMULATION_EVENT_DATE_BEHAVIORS = [
+    'ignore',
+    'location',
+    'policy',
+    'policyAndLocation',
+    'treaty',
+    'treatyAndLocation',
+    'treatyAndPolicy',
+    'treatyAndPolicyAndLocation',
+]
+
 GET_MODEL_PROFILES = '/analysis-settings/modelprofiles'
 GET_OUTPUT_PROFILES = '/analysis-settings/outputprofiles'
 GET_EVENT_RATE_SCHEME = '/data-store/referencetables/eventratescheme'

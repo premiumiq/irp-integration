@@ -34,6 +34,7 @@ MODULE_ORDER = [
     "treaty",
     "analysis",
     "analysis_validation",
+    "accumulation",
     "rdm",
     "risk_data_job",
     "import_job",

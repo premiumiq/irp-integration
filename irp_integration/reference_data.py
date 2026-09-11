@@ -66,6 +66,54 @@ def _build_default_analysis_currency_dict() -> Dict[str, str]:
     }
 
 
+def _build_accumulation_currency_dict(
+    vintage: Dict[str, Any],
+    currency_scheme_name: str
+) -> Dict[str, str]:
+    """
+    Build the ``settings.currency`` object for a Create accumulation job request.
+
+    The Accumulation API names the currency fields differently from the model
+    job: ``currency`` (not ``code``), ``currencySchemeName`` (the scheme's
+    display name, not its code), ``currencyVersion`` (not ``vintage``), and
+    ``asOfDate``.
+
+    Args:
+        vintage: Currency scheme vintage dict from the API with keys
+            ``effectiveDate`` and ``vintage``
+        currency_scheme_name: ``currencySchemeName`` of the vintage's scheme
+
+    Returns:
+        Currency dict with asOfDate (date only), currency, currencySchemeName,
+        and currencyVersion
+    """
+    effective_date = vintage["effectiveDate"].split("T")[0]
+    return {
+        "asOfDate": effective_date,
+        "currency": "USD",
+        "currencySchemeName": currency_scheme_name,
+        "currencyVersion": vintage["vintage"]
+    }
+
+
+def _build_default_accumulation_currency_dict() -> Dict[str, str]:
+    """
+    Build the fallback ``settings.currency`` object for a Create accumulation job.
+
+    Used when the currency scheme or its vintages cannot be retrieved from the
+    API. Mirrors ``_build_default_analysis_currency_dict``.
+
+    Returns:
+        Currency dict with default values
+    """
+    return {
+        "asOfDate": "2025-05-28",
+        "currency": "USD",
+        "currencySchemeName": "RMS Default",
+        "currencyVersion": "RL25"
+    }
+
+
 class ReferenceDataManager:
     """Manager for reference data operations."""
 
@@ -418,6 +466,64 @@ class ReferenceDataManager:
         except IRPAPIError:
             logger.warning("Failed to get currency scheme vintage from API, using defaults")
             return _build_default_analysis_currency_dict()
+
+
+    def get_currency_scheme_name_by_code(self, currency_scheme_code: str) -> str:
+        """
+        Resolve a currency scheme's ``currencySchemeName`` from its ``currencySchemeCode``.
+
+        Args:
+            currency_scheme_code: Scheme code, e.g. ``"RMS"``
+
+        Returns:
+            The scheme's ``currencySchemeName``, e.g. ``"RMS Default"`` for ``"RMS"``
+
+        Raises:
+            IRPValidationError: If currency_scheme_code is empty
+            IRPAPIError: If the request fails, or zero or more than one scheme
+                carries the code
+        """
+        validate_non_empty_string(currency_scheme_code, "currency_scheme_code")
+        response = self.search_currency_schemes(
+            where_clause=f'currencySchemeCode="{currency_scheme_code}"'
+        )
+        try:
+            items = response['items']
+        except (KeyError, TypeError) as e:
+            raise IRPAPIError(
+                f"Failed to extract items from currency schemes response: {e}"
+            ) from e
+        if len(items) != 1:
+            raise IRPAPIError(
+                f"Expected 1 currency scheme with code '{currency_scheme_code}', found {len(items)}"
+            )
+        try:
+            return items[0]['currencySchemeName']
+        except (KeyError, TypeError) as e:
+            raise IRPAPIError(
+                f"Currency scheme '{currency_scheme_code}' has no currencySchemeName: {e}"
+            ) from e
+
+
+    def get_accumulation_currency(self) -> Dict[str, str]:
+        """
+        Get the ``settings.currency`` object for a Create accumulation job request.
+
+        Uses the latest RMS currency scheme vintage and the RMS scheme's
+        ``currencySchemeName``. Falls back to default values if either lookup
+        fails, the same way ``get_analysis_currency`` does.
+
+        Returns:
+            Currency dict with asOfDate, currency, currencySchemeName, and
+            currencyVersion
+        """
+        try:
+            latest_vintage = self.get_latest_currency_scheme_vintage()
+            scheme_name = self.get_currency_scheme_name_by_code("RMS")
+            return _build_accumulation_currency_dict(latest_vintage, scheme_name)
+        except IRPAPIError:
+            logger.warning("Failed to get currency scheme or vintage from API, using defaults")
+            return _build_default_accumulation_currency_dict()
 
 
     def get_currency_by_name(self, currency_name: str) -> Dict[str, Any]:

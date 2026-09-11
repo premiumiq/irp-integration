@@ -6,6 +6,7 @@ IRPValidationError exceptions when validation fails.
 """
 
 import os
+from datetime import date
 from typing import Any, Dict, List
 from .constants import IMPORT_FILE_EXTENSIONS
 from .exceptions import IRPValidationError
@@ -291,6 +292,34 @@ def validate_geohaz_layers(value: Any, param_name: str = "layers") -> None:
                     f"got {type(layer_options[option]).__name__}"
                 )
     
+
+def validate_iso_date_string(value: Any, param_name: str) -> None:
+    """
+    Validate that a value is a calendar date string in ``YYYY-MM-DD`` form.
+
+    Args:
+        value: Value to validate
+        param_name: Parameter name for error message
+
+    Raises:
+        IRPValidationError: If value is not a string, or does not parse as a
+            ``YYYY-MM-DD`` date
+    """
+    if not isinstance(value, str):
+        raise IRPValidationError(
+            f"{param_name} must be a string, got {type(value).__name__}"
+        )
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError:
+        raise IRPValidationError(
+            f"{param_name} must be a date in YYYY-MM-DD form, got: {value}"
+        )
+    if parsed.isoformat() != value:
+        raise IRPValidationError(
+            f"{param_name} must be a date in YYYY-MM-DD form, got: {value}"
+        )
+
 
 def validate_list_of_positive_ints(value: Any, param_name: str) -> None:
     """

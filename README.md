@@ -184,6 +184,7 @@ results = dbm.execute_query_from_file(
 | `client.mri_import` | MRI (CSV) data import workflow — bucket creation, file upload, mapping, and execution |
 | `client.treaty` | Reinsurance treaty creation, LOB assignment, and reference data |
 | `client.analysis` | Risk analysis execution, profiles, event rate schemes, and analysis groups |
+| `client.accumulation` | Accumulation profiles (read-only), accumulation job submission and polling, and the link to the resulting analysis |
 | `client.rdm` | Results Data Mart — export analysis results to RDM |
 | `client.risk_data_job` | Risk data job status tracking |
 | `client.import_job` | Platform import job management (EDM/RDM imports) |

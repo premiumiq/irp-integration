@@ -8,7 +8,7 @@ The single entry point is ``IRPClient``, which holds one HTTP client and exposes
 
 **Managers (``client.<name>``):**
 
-edm, portfolio, mri_import, treaty, analysis, risk_data_job, rdm, import_job, export_job, reference_data, and (optional) databridge.
+edm, portfolio, mri_import, treaty, analysis, accumulation, risk_data_job, rdm, import_job, export_job, reference_data, and (optional) databridge.
 
 Name-based interface: high-level methods accept human-readable names (EDM names, portfolio names, profile names, treaty names) and resolve them to IDs internally.
 
@@ -36,6 +36,8 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
 - [`irp_integration.analysis`](#irp_integrationanalysis)
   - [AnalysisManager](#class-analysismanager)
 - [`irp_integration.analysis_validation`](#irp_integrationanalysis_validation)
+- [`irp_integration.accumulation`](#irp_integrationaccumulation)
+  - [AccumulationManager](#class-accumulationmanager)
 - [`irp_integration.rdm`](#irp_integrationrdm)
   - [RDMManager](#class-rdmmanager)
 - [`irp_integration.risk_data_job`](#irp_integrationrisk_data_job)
@@ -2505,6 +2507,450 @@ model profiles and event rate schemes.
 
 ---
 
+## `irp_integration.accumulation`
+
+Accumulation analysis operations.
+
+Accumulation profiles, accumulation job submission and polling, and the link from a finished accumulation job to its analysis result.
+
+**Accumulation profiles:**
+
+An accumulation profile holds the peril, geocode version, scope, damage factors and filters an accumulation job runs with. The Accumulation API only reads profiles (``/platform/accumulation/v1/profiles``); profiles are created and edited in ExposureIQ. ``search_accumulation_profiles`` filters on ``profileName`` and ``profileId``; ``name`` and ``id`` are rejected with ``400 Unsupported field``.
+
+**Accumulation jobs:**
+
+``submit_portfolio_accumulation_job`` posts to ``/platform/accumulation/v1/jobs`` with ``resourceType`` ``portfolio`` and returns the ``jobId`` from the ``Location`` header. The job is served by ``/platform/accumulation/v1/jobs/{jobId}``, not by ``/platform/riskdata/v1/jobs``, which answers ``404 Invalid workflow id`` for it. Poll with ``poll_accumulation_job_to_completion`` or ``poll_accumulation_job_batch_to_completion``. Both return on ``FINISHED``, ``FAILED`` or ``CANCELLED``; check ``status`` (see ``client.py``).
+
+Search accumulation jobs documents a ``filter`` parameter, but every filter tried (``jobId =``, ``jobId IN``, ``name =``, ``status =``, ``userName =``) returned the same unfiltered list. ``poll_accumulation_job_batch_to_completion`` therefore calls Get accumulation job once per job ID each round instead of searching with ``jobId IN (...)`` the way ``AnalysisManager`` does.
+
+**Results:**
+
+A finished accumulation job's ``tasks[0].output.log.analysisId`` is the Risk Data API ``analysisId`` of the result, so no search by name is needed. The result is an ordinary analysis with ``engineType`` ``Accumulation`` and ``modelProfile.id`` equal to the accumulation ``profileId``; read it with ``get_analysis_for_accumulation_job`` or ``AnalysisManager.get_analysis_by_id``. Exposed-limit rows are not retrievable through the Accumulation API; the Export API and the Risk Data report job are the documented routes and are not implemented here.
+
+### `class AccumulationManager`
+
+Manager for accumulation profile reads and accumulation job operations.
+
+#### `__init__`
+
+```python
+def __init__(self, irp: irp_integration.IRPClient)
+```
+
+Initialize accumulation manager.
+
+**Arguments:**
+ - **irp:**  Owning IRP client instance
+
+#### `search_accumulation_profiles`
+
+```python
+def search_accumulation_profiles(
+    self,
+    filter: str = '',
+    sort: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search accumulation profiles.
+
+Filterable properties observed live: ``profileName`` and ``profileId``.
+``name`` and ``id`` are rejected with ``400 Unsupported field``. Sort
+accepts the documented ``name``, ``id``, ``type``, ``createdBy``,
+``dateCreated`` and ``dateUpdated``.
+
+**Arguments:**
+ - **filter:**  Optional filter string, e.g. ``profileName = "US EQ"``
+ - **sort:**  Optional sort, e.g. ``name ASC``
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of accumulation profile summary dicts (``profileId``,
+> ``profileName``, ``analysisType``, ``isActive``, ``geocodeVersion``,
+> ``filterPredicateCount``, ``tags``, ...)
+
+**Raises:**
+ - **IRPAPIError:**  If the request fails
+
+#### `search_accumulation_profiles_paginated`
+
+```python
+def search_accumulation_profiles_paginated(self, filter: str = '') -> List[Dict[str, Any]]
+```
+
+Search all accumulation profiles with automatic pagination.
+
+Fetches all pages of results matching the filter criteria, paging via
+``paginate_search``.
+
+**Arguments:**
+ - **filter:**  Optional filter string
+
+**Returns:**
+> Complete list of all matching accumulation profiles across all pages
+
+**Raises:**
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
+#### `get_accumulation_profile_by_id`
+
+```python
+def get_accumulation_profile_by_id(self, profile_id: int) -> Dict[str, Any]
+```
+
+Retrieve one accumulation profile, including its details.
+
+The response adds ``details`` (damage factors with their filters and
+``lossTypeDamageFactors``, ``minLossThreshold``,
+``workersCompProfileSettings``) and ``globalProfileFilters`` to the
+summary fields returned by ``search_accumulation_profiles``.
+
+**Arguments:**
+ - **profile_id:**  Accumulation profile ID
+
+**Returns:**
+> Dict containing the accumulation profile
+
+**Raises:**
+ - **IRPValidationError:**  If profile_id is invalid
+ - **IRPAPIError:**  If the request fails
+
+#### `get_accumulation_profile_by_name`
+
+```python
+def get_accumulation_profile_by_name(self, profile_name: str) -> Dict[str, Any]
+```
+
+Retrieve an accumulation profile summary by its ``profileName``.
+
+Profile names are not unique across a tenant, so a name that matches
+more than one profile is an error rather than a silent first pick.
+
+**Arguments:**
+ - **profile_name:**  Accumulation profile name
+
+**Returns:**
+> Dict containing the accumulation profile summary
+
+**Raises:**
+ - **IRPValidationError:**  If profile_name is empty
+ - **IRPAPIError:**  If the search fails, or zero or more than one profile
+   carries the name
+
+#### `submit_portfolio_accumulation_jobs`
+
+```python
+def submit_portfolio_accumulation_jobs(self, accumulation_data_list: List[Dict[str, Any]]) -> List[int]
+```
+
+Submit multiple portfolio accumulation jobs.
+
+**Arguments:**
+ - **accumulation_data_list:**  List of accumulation job data dicts, each containing:
+   - edm_name: str
+   - portfolio_name: str
+   - job_name: str
+   - profile_names: List[str]
+   - financial_perspectives: List[str]
+   - event_date_behavior: str
+   - event_date: str
+   - treaty_names: List[str], optional (defaults to [])
+   - tag_names: List[str], optional (defaults to [])
+   - currency: Dict[str, str], optional
+   - geocode_version: str, optional (defaults to "")
+   - include_loss_by_treaty: bool, optional (defaults to True)
+
+**Returns:**
+> List of job IDs
+
+**Raises:**
+ - **IRPValidationError:**  If accumulation_data_list is empty or an entry is invalid
+ - **IRPAPIError:**  If a submission fails or an analysis name already exists
+
+#### `submit_portfolio_accumulation_job`
+
+```python
+def submit_portfolio_accumulation_job(
+    self,
+    edm_name: str,
+    portfolio_name: str,
+    job_name: str,
+    profile_names: List[str],
+    financial_perspectives: List[str],
+    event_date_behavior: str,
+    event_date: str,
+    treaty_names: List[str],
+    tag_names: List[str],
+    currency: Optional[Dict[str, str]] = None,
+    geocode_version: str = '',
+    include_loss_by_treaty: bool = True,
+    skip_duplicate_check: bool = False
+) -> Tuple[int, Dict[str, Any]]
+```
+
+Submit a portfolio accumulation job (submits but doesn't wait).
+
+Posts a ``resourceType`` ``portfolio`` request to Create accumulation
+job. Every accumulation result the job produces is named ``job_name``;
+with several profiles the results share the name and differ by
+``modelProfile.id``.
+
+**Arguments:**
+ - **edm_name:**  Name of the EDM (exposure database)
+ - **portfolio_name:**  Name of the portfolio to analyze
+ - **job_name:**  Name for the job and its analysis result (must be unique
+   within the EDM)
+ - **profile_names:**  Accumulation profile names; each must resolve to
+   exactly one profile
+ - **financial_perspectives:**  Financial perspective codes to calculate,
+   e.g. ``["GU", "GR", "RL"]``. No default: the API requires the
+   list and the Risk Modeler UI always includes ``GU``
+ - **event_date_behavior:**  One of ``ACCUMULATION_EVENT_DATE_BEHAVIORS``
+   (``ignore``, ``location``, ``policy``, ``policyAndLocation``,
+   ``treaty``, ``treatyAndLocation``, ``treatyAndPolicy``,
+   ``treatyAndPolicyAndLocation``). Decides which effective dates
+   ``event_date`` is checked against. No default
+ - **event_date:**  Event date in ``YYYY-MM-DD`` form. Sent as-is; the API
+   accepted this form live. The Risk Modeler UI sends the same
+   field as epoch milliseconds
+ - **treaty_names:**  Treaty names to apply. An empty list sends
+   ``treatyIds`` as ``[]``
+ - **tag_names:**  Tag names to apply. An empty list sends ``tagIds`` as ``[]``
+ - **currency:**  Optional ``settings.currency`` object with keys
+   ``asOfDate``, ``currency``, ``currencySchemeName`` and
+   ``currencyVersion``. Defaults to
+   ``ReferenceDataManager.get_accumulation_currency()``
+ - **geocode_version:**  ``portfolioProperties.geocodeVersion``. Defaults
+   to ``""``, which is what the Risk Modeler UI sends even for a
+   geocoded portfolio. The documented key is ``geoCodingVersion``;
+   ``geocodeVersion`` is the key the UI sends and the API accepted
+ - **include_loss_by_treaty:**  ``additionalOutputOptions.includeLossByTreaty``.
+   Defaults to ``True``, matching the Risk Modeler UI
+ - **skip_duplicate_check:**  Skip checking whether an analysis named
+   ``job_name`` already exists in the EDM (for batch submission)
+
+**Returns:**
+> Tuple of (job_id, request_body) where request_body is the HTTP request payload
+
+**Raises:**
+ - **IRPValidationError:**  If a string argument is empty, ``profile_names``
+   or ``financial_perspectives`` is empty, a perspective code is not
+   in ``PERSPECTIVE_CODES``, ``event_date_behavior`` is not in
+   ``ACCUMULATION_EVENT_DATE_BEHAVIORS``, or ``event_date`` is not
+   ``YYYY-MM-DD``
+ - **IRPAPIError:**  If the analysis name exists, the EDM, portfolio, a
+   treaty, a profile or a tag cannot be resolved, or the request fails
+
+#### `get_accumulation_job`
+
+```python
+def get_accumulation_job(self, job_id: int) -> Dict[str, Any]
+```
+
+Retrieve accumulation job status by job ID.
+
+The response is the Platform job shape: ``jobId``, ``status``,
+``progress``, ``name``, ``type``, ``details.resources`` and ``tasks``.
+``type`` is reported as ``PublicLiveEdmAccumulationEngine``.
+
+**Arguments:**
+ - **job_id:**  Job ID
+
+**Returns:**
+> Dict containing job status details
+
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPAPIError:**  If the request fails
+
+#### `search_accumulation_jobs`
+
+```python
+def search_accumulation_jobs(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search accumulation jobs.
+
+``filter`` is sent when given because Search accumulation jobs documents
+it, but live the server returned the same unfiltered list for
+``jobId =``, ``jobId IN``, ``name =``, ``status =`` and ``userName =``.
+Do not rely on it to narrow the result; ``limit`` and ``offset`` are
+honoured.
+
+**Arguments:**
+ - **filter:**  Optional filter string (default: "")
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of accumulation job summary dicts, newest first
+
+**Raises:**
+ - **IRPAPIError:**  If the request fails
+
+#### `poll_accumulation_job_to_completion`
+
+```python
+def poll_accumulation_job_to_completion(
+    self,
+    job_id: int,
+    interval: int = 10,
+    timeout: int = 600000
+) -> Dict[str, Any]
+```
+
+Poll an accumulation job until it reaches a terminal status or times out.
+
+Returns on ``FINISHED``, ``FAILED`` or ``CANCELLED``; check ``status``.
+
+**Arguments:**
+ - **job_id:**  Job ID
+ - **interval:**  Polling interval in seconds (default: 10)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
+
+**Returns:**
+> Final job status details
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If the job does not reach a terminal status within ``timeout``
+ - **IRPAPIError:**  If polling fails or the response lacks ``status``/``progress``
+
+#### `poll_accumulation_job_batch_to_completion`
+
+```python
+def poll_accumulation_job_batch_to_completion(
+    self,
+    job_ids: List[int],
+    interval: int = 20,
+    timeout: int = 600000
+) -> List[Dict[str, Any]]
+```
+
+Poll multiple accumulation jobs until all reach a terminal status or time out.
+
+Calls Get accumulation job once per job ID each round. Search
+accumulation jobs ignores its ``filter`` (see ``search_accumulation_jobs``),
+so a ``jobId IN (...)`` search cannot narrow the list to these jobs.
+
+**Arguments:**
+ - **job_ids:**  List of job IDs
+ - **interval:**  Polling interval in seconds (default: 20)
+ - **timeout:**  Maximum timeout in seconds (default: 600000)
+
+**Returns:**
+> Final job status details for every job, in ``job_ids`` order. Each
+> entry is ``FINISHED``, ``FAILED`` or ``CANCELLED``; check ``status``
+
+**Raises:**
+ - **IRPValidationError:**  If parameters are invalid
+ - **IRPJobError:**  If any job has not reached a terminal status within ``timeout``
+ - **IRPAPIError:**  If polling fails
+
+#### `extract_analysis_id_from_accumulation_job`
+
+```python
+def extract_analysis_id_from_accumulation_job(self, job: Dict[str, Any]) -> int
+```
+
+Read the result ``analysisId`` out of a finished accumulation job.
+
+The ID is ``tasks[0].output.log.analysisId`` and is the Risk Data API
+``analysisId`` (``/platform/riskdata/v1/analyses/{analysisId}``). While
+the job is running the field reads ``"0"``, so a job that is not
+``FINISHED`` is rejected rather than returning a placeholder.
+
+**Arguments:**
+ - **job:**  Job dict as returned by ``get_accumulation_job`` or the poll methods
+
+**Returns:**
+> Analysis ID of the accumulation result
+
+**Raises:**
+ - **IRPJobError:**  If the job ``status`` is not ``FINISHED``
+ - **IRPAPIError:**  If the job carries no positive ``analysisId``
+
+#### `get_analysis_for_accumulation_job`
+
+```python
+def get_analysis_for_accumulation_job(self, job_id: int) -> Dict[str, Any]
+```
+
+Retrieve the analysis result produced by a finished accumulation job.
+
+Reads the job, takes ``tasks[0].output.log.analysisId``, and returns
+``AnalysisManager.get_analysis_by_id`` for it. The analysis carries
+``engineType`` ``Accumulation``, ``modelProfile.id`` equal to the
+accumulation ``profileId``, ``variationId``, ``eventInfo`` and
+``appAnalysisId``.
+
+**Arguments:**
+ - **job_id:**  Accumulation job ID
+
+**Returns:**
+> Dict containing the analysis result metadata
+
+**Raises:**
+ - **IRPValidationError:**  If job_id is invalid
+ - **IRPJobError:**  If the job is not ``FINISHED``
+ - **IRPAPIError:**  If the job or analysis cannot be read
+
+#### `search_accumulation_analyses`
+
+```python
+def search_accumulation_analyses(
+    self,
+    filter: str = '',
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]
+```
+
+Search analysis results whose ``engineType`` is ``Accumulation``.
+
+``filter`` is combined with ``engineType = "Accumulation"`` using ``AND``.
+
+**Arguments:**
+ - **filter:**  Optional additional filter, e.g. ``exposureName = "my_edm"``
+ - **limit:**  Maximum results per page (default: 100)
+ - **offset:**  Offset for pagination (default: 0)
+
+**Returns:**
+> List of analysis result dicts
+
+**Raises:**
+ - **IRPAPIError:**  If the search fails
+
+#### `search_accumulation_analyses_paginated`
+
+```python
+def search_accumulation_analyses_paginated(self, filter: str = '') -> List[Dict[str, Any]]
+```
+
+Search all accumulation analysis results with automatic pagination.
+
+**Arguments:**
+ - **filter:**  Optional additional filter, combined with
+   ``engineType = "Accumulation"`` using ``AND``
+
+**Returns:**
+> Complete list of all matching analysis results across all pages
+
+**Raises:**
+ - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
+   have read every page
+
+---
+
 ## `irp_integration.rdm`
 
 RDM (Risk Data Model) export operations.
@@ -3642,6 +4088,41 @@ Falls back to default values if the API call fails.
 **Returns:**
 > Currency dict with asOfDate, code, scheme, and vintage
 
+#### `get_currency_scheme_name_by_code`
+
+```python
+def get_currency_scheme_name_by_code(self, currency_scheme_code: str) -> str
+```
+
+Resolve a currency scheme's ``currencySchemeName`` from its ``currencySchemeCode``.
+
+**Arguments:**
+ - **currency_scheme_code:**  Scheme code, e.g. ``"RMS"``
+
+**Returns:**
+> The scheme's ``currencySchemeName``, e.g. ``"RMS Default"`` for ``"RMS"``
+
+**Raises:**
+ - **IRPValidationError:**  If currency_scheme_code is empty
+ - **IRPAPIError:**  If the request fails, or zero or more than one scheme
+   carries the code
+
+#### `get_accumulation_currency`
+
+```python
+def get_accumulation_currency(self) -> Dict[str, str]
+```
+
+Get the ``settings.currency`` object for a Create accumulation job request.
+
+Uses the latest RMS currency scheme vintage and the RMS scheme's
+``currencySchemeName``. Falls back to default values if either lookup
+fails, the same way ``get_analysis_currency`` does.
+
+**Returns:**
+> Currency dict with asOfDate, currency, currencySchemeName, and
+> currencyVersion
+
 #### `get_currency_by_name`
 
 ```python
@@ -4461,6 +4942,22 @@ so callers can use API additions without waiting for a package release.
 **Raises:**
  - **IRPValidationError:**  If the list, a layer, or required layer options are
    invalid
+
+#### `validate_iso_date_string`
+
+```python
+def validate_iso_date_string(value: Any, param_name: str) -> None
+```
+
+Validate that a value is a calendar date string in ``YYYY-MM-DD`` form.
+
+**Arguments:**
+ - **value:**  Value to validate
+ - **param_name:**  Parameter name for error message
+
+**Raises:**
+ - **IRPValidationError:**  If value is not a string, or does not parse as a
+   ``YYYY-MM-DD`` date
 
 #### `validate_list_of_positive_ints`
 

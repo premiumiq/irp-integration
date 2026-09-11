@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 import pytest
 
+from irp_integration.accumulation import AccumulationManager
 from irp_integration.analysis import AnalysisManager
 from irp_integration.portfolio import PortfolioManager
 from irp_integration.reference_data import ReferenceDataManager
@@ -116,6 +117,29 @@ def make_analysis_manager():
         irp.treaty = TreatyManager(irp)
         irp.portfolio = PortfolioManager(irp)
         return AnalysisManager(irp), client, edm_manager
+
+    return build
+
+
+@pytest.fixture
+def make_accumulation_manager():
+    """
+    Return a factory building (AccumulationManager, FakeClient, FakeEDMManager).
+
+    ``AccumulationManager`` reads its sibling managers off the owning client, so
+    the real ``ReferenceDataManager``, ``TreatyManager``, ``PortfolioManager``
+    and ``AnalysisManager`` are built over the same ``FakeClient``. One queue of
+    responses covers every request the submit path makes, in call order.
+    """
+    def build(responses=None, edms=None):
+        client = FakeClient(responses)
+        edm_manager = FakeEDMManager(edms)
+        irp = SimpleNamespace(client=client, edm=edm_manager)
+        irp.reference_data = ReferenceDataManager(irp)
+        irp.treaty = TreatyManager(irp)
+        irp.portfolio = PortfolioManager(irp)
+        irp.analysis = AnalysisManager(irp)
+        return AccumulationManager(irp), client, edm_manager
 
     return build
 
