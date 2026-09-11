@@ -34,6 +34,8 @@ Data Bridge (SQL Server) support is optional: ``client.databridge`` exists only 
 - [`irp_integration.treaty`](#irp_integrationtreaty)
   - [TreatyManager](#class-treatymanager)
 - [`irp_integration.analysis`](#irp_integrationanalysis)
+  - [AppliedTreaty](#class-appliedtreaty)
+  - [RunDescription](#class-rundescription)
   - [AnalysisManager](#class-analysismanager)
 - [`irp_integration.grouping`](#irp_integrationgrouping)
   - [EventRateSchemeOption](#class-eventrateschemeoption)
@@ -1717,6 +1719,43 @@ Analysis management operations.
 
 Handles portfolio analysis submission, job tracking, and result retrieval.
 
+### `class AppliedTreaty`
+
+One treaty as applied to one analysis, with the name Risk Modeler shows.
+
+``terms`` are the analysis-level loss-affecting values, normalized the way ``GroupingManager`` normalizes them for its treaty comparison: what the analysis ran with, not the EDM treaty definition. An analysis run in CAD against a treaty defined in USD reports CAD.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    treaty_id: Optional[int],
+    treaty_number: str,
+    treaty_name: Optional[str],
+    terms: Dict[str, Any]
+)
+```
+
+### `class RunDescription`
+
+What one analysis ran with: regions, event-rate scheme names, treaties.
+
+``regions`` holds one ``GroupingRegionFact`` per region row the Platform returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports 23 regions. ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler event-rate scheme row resolves; an ID no active row carries is absent.
+
+#### `__init__`
+
+```python
+def __init__(
+    self,
+    analysis_id: int,
+    is_group: bool,
+    regions: Tuple[irp_integration.grouping.GroupingRegionFact, ...],
+    event_rate_scheme_names: Mapping[int, str],
+    treaties: Tuple[irp_integration.analysis.AppliedTreaty, ...]
+)
+```
+
 ### `class AnalysisManager`
 
 Manager for analysis operations.
@@ -2231,6 +2270,36 @@ Fetches all pages of results, paging via ``paginate_search``.
  - **IRPValidationError:**  If parameters are invalid
  - **IRPAPIError:**  If a request fails, or if pagination cannot be shown to
    have read every page
+
+#### `describe_run`
+
+```python
+def describe_run(self, analysis_id: int) -> irp_integration.analysis.RunDescription
+```
+
+Describe what one analysis ran with.
+
+Reads the analysis detail, its region rows, and its treaties, and names
+each region's event-rate scheme from the active Risk Modeler reference
+rows. Regions are normalized the way ``GroupingManager.inspect``
+normalizes them: a region row's peril display name resolves to the
+detail's ``perilCode``, and a PLT region's ``petId`` is named through
+the ``PETMetadata`` row for the region's model version, since PET ID 12
+exists under more than one model version with a different ``petName``.
+A ``petId`` no ``PETMetadata`` row qualifies keeps its ID and periods
+and reports ``pet_name`` None.
+
+**Arguments:**
+ - **analysis_id:**  Analysis ID
+
+**Returns:**
+> ``RunDescription`` with the region facts, the event-rate scheme
+> names those regions carry, and the treaties applied to the analysis
+
+**Raises:**
+ - **IRPValidationError:**  If analysis_id is invalid
+ - **IRPAPIError:**  If the analysis, region, treaty, or reference-data read
+   fails
 
 #### `submit_analysis_export_job`
 

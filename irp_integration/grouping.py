@@ -32,7 +32,10 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, TYPE_CHECKING, TypeGuard
+from typing import (
+    Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple,
+    TYPE_CHECKING, TypeGuard,
+)
 
 from .constants import CREATE_ANALYSIS_GROUP, GET_ANALYSIS_GROUPING_JOB, GET_ANALYSIS_RESULT
 from .exceptions import IRPAPIError, IRPGroupingValidationError, IRPValidationError
@@ -394,6 +397,279 @@ def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int
     return None, label
 
 
+def _analysis_framework(analysis: Mapping[str, Any]) -> Optional[str]:
+    """Return the analysis detail's ELT or PLT classification, upper-cased."""
+    framework = _text(_field(analysis, "analysisFramework", "framework"))
+    return framework.upper() if framework else None
+
+
+class _ReferenceLookups:
+    """Reference-data reads for one call, cached by their arguments.
+
+    ``GroupingManager._inspect`` and ``AnalysisManager.describe_run`` both turn
+    analysis region rows into ``GroupingRegionFact`` rows and read the same
+    model-version mappings, PET metadata rows, and active event-rate scheme rows
+    while doing it. One instance reads each of them once.
+    """
+
+    def __init__(self, irp: "IRPClient") -> None:
+        """Initialize the lookups over one IRP client.
+
+        Args:
+            irp: Owning IRP client instance
+        """
+        self._irp = irp
+        self._model_versions: Dict[
+            Tuple[str, str, str], Tuple[Optional[str], Optional[Exception]]
+        ] = {}
+        self._pet_metadata: Dict[
+            Tuple[int, str, Optional[str]],
+            Tuple[Optional[Dict[str, Any]], Optional[Exception]],
+        ] = {}
+        self._scheme_rows: Optional[Tuple[Mapping[str, Any], ...]] = None
+
+    def model_version(
+        self, engine: str, region: str, peril: str
+    ) -> Tuple[Optional[str], Optional[Exception]]:
+        """Return the model version for an engine, region, and peril.
+
+        Args:
+            engine: Engine version such as ``"RL25"`` or ``"HDv3.0"``
+            region: Region code such as ``"NA"``
+            peril: Peril code such as ``"WS"``
+
+        Returns:
+            The model version, or the ``IRPAPIError`` the lookup raised
+        """
+        key = (engine, region, peril)
+        if key not in self._model_versions:
+            try:
+                value = self._irp.reference_data.get_model_version_by_engine_region_peril(
+                    engine, region, peril
+                )
+                self._model_versions[key] = (str(value), None)
+            except IRPAPIError as exc:
+                self._model_versions[key] = (None, exc)
+        return self._model_versions[key]
+
+    def pet_metadata(
+        self,
+        pet_id: int,
+        model_version: str,
+        model_region_code: Optional[str],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
+        """Return the qualified ``PETMetadata`` row for a PET ID.
+
+        Args:
+            pet_id: Positive PET ID from a PLT region row
+            model_version: Exact model version code
+            model_region_code: Exact model region code, or None
+
+        Returns:
+            The single matching row, or the ``IRPAPIError`` the lookup raised
+        """
+        key = (pet_id, model_version, model_region_code)
+        if key not in self._pet_metadata:
+            try:
+                value = self._irp.reference_data.get_pet_metadata_exact(
+                    pet_id=pet_id,
+                    model_version=model_version,
+                    model_region_code=model_region_code,
+                )
+                self._pet_metadata[key] = (value, None)
+            except IRPAPIError as exc:
+                self._pet_metadata[key] = (None, exc)
+        return self._pet_metadata[key]
+
+    def event_rate_scheme_rows(self) -> Tuple[Mapping[str, Any], ...]:
+        """
+        Return active Risk Modeler event-rate scheme reference rows.
+
+        Event-rate applicability and CCM simulation-set exclusion both use
+        fields from the same active reference response.
+
+        Returns:
+            Every active event-rate scheme row
+
+        Raises:
+            IRPAPIError: If the reference read returns a non-list response
+        """
+        if self._scheme_rows is None:
+            payload = self._irp.reference_data.get_event_rate_schemes()
+            rows = payload.get("items") if isinstance(payload, Mapping) else payload
+            if (
+                isinstance(rows, (str, bytes))
+                or not isinstance(rows, Sequence)
+            ):
+                raise IRPAPIError(
+                    "Event-rate scheme search returned a non-list response"
+                )
+            self._scheme_rows = tuple(
+                row for row in rows if isinstance(row, Mapping)
+            )
+        return self._scheme_rows
+
+    def scheme_name(self, scheme_id: int) -> Optional[str]:
+        """Return Risk Modeler's label for an event-rate scheme ID."""
+        for row in self.event_rate_scheme_rows():
+            if row.get("eventRateSchemeId") == scheme_id:
+                return _text(row.get("eventRateSchemeName"))
+        return None
+
+
+def _region_facts(
+    analysis_id: int,
+    analysis: Mapping[str, Any],
+    raw_regions: Sequence[Any],
+    lookups: _ReferenceLookups,
+    report: Callable[[GroupingProblem], None],
+) -> Tuple[List[GroupingRegionFact], Set[str]]:
+    """Normalize the region rows of one analysis.
+
+    A region row carries the peril as a display name, so ``perilCode`` and
+    ``regionCode`` from the analysis detail supply the codes. A row without an
+    ELT or PLT classification, without engine, peril, or region metadata, or
+    whose model version does not resolve exactly is reported and dropped.
+
+    Args:
+        analysis_id: Platform analysis ID the region rows belong to
+        analysis: Analysis detail from ``AnalysisManager.get_analysis_by_id``
+        raw_regions: Region rows from ``AnalysisManager.get_regions``
+        lookups: Cached model-version, PET metadata, and event-rate reads
+        report: Called once per problem found in the rows
+
+    Returns:
+        The region facts in row order, and every ELT or PLT classification the
+        rows carried, including rows dropped after classification
+    """
+    analysis_framework = _analysis_framework(analysis)
+    detail_engine = _text(_field(analysis, "engineVersion", "softwareVersionCode"))
+    detail_peril = _text(_field(analysis, "perilCode", "peril"))
+    detail_region = _text(_field(analysis, "regionCode", "region"))
+    detail_peril_name = _text(analysis.get("peril"))
+    detail_region_name = _text(analysis.get("region"))
+    analysis_scheme, _ = _event_rate_from_analysis(analysis)
+
+    region_facts: List[GroupingRegionFact] = []
+    observed_frameworks: Set[str] = set()
+    for raw_region in raw_regions:
+        if not isinstance(raw_region, Mapping):
+            report(GroupingProblem(
+                code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
+                message=f"Analysis {analysis_id} returned a malformed region row.",
+                analysis_ids=(analysis_id,),
+            ))
+            continue
+        framework = _text(_field(raw_region, "framework", "analysisFramework"))
+        framework = (framework or analysis_framework or "").upper()
+        if framework not in {"ELT", "PLT"}:
+            report(GroupingProblem(
+                code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
+                message=f"Analysis {analysis_id} has a region with no ELT/PLT classification.",
+                analysis_ids=(analysis_id,),
+            ))
+            continue
+        observed_frameworks.add(framework)
+        row_engine = _text(_field(raw_region, "engineVersion", "softwareVersionCode"))
+        row_peril = _resolve_code(
+            _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
+        )
+        row_region = _resolve_code(
+            _field(raw_region, "regionCode", "region"), detail_region, detail_region_name
+        )
+        engine = row_engine or detail_engine
+        peril = row_peril or detail_peril
+        region = row_region or detail_region
+        sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
+        apply_contract = bool(_field(raw_region, "applyContractFlag"))
+        scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
+        scheme_id = int(scheme) if _positive_int(scheme) else analysis_scheme
+        pet_value = _field(raw_region, "petId", "simulationSetId")
+        pet_id = int(pet_value) if _positive_int(pet_value) else None
+        pet_name: Optional[str] = None
+        period_value = _field(raw_region, "periods", "simulationPeriods")
+        periods = int(period_value) if _positive_int(period_value) else None
+
+        if framework == "PLT":
+            if pet_id is None:
+                report(GroupingProblem(
+                    code=GroupingProblemCode.PET_ID_MISSING.value,
+                    message=f"PLT analysis {analysis_id} has a region with no positive PET ID.",
+                    analysis_ids=(analysis_id,),
+                ))
+            if periods is None:
+                report(GroupingProblem(
+                    code=GroupingProblemCode.PET_PERIODS_MISSING.value,
+                    message=f"PLT analysis {analysis_id} has no positive period count.",
+                    analysis_ids=(analysis_id,),
+                    pet_ids=(pet_id,) if pet_id else (),
+                ))
+            if apply_contract:
+                report(GroupingProblem(
+                    code=GroupingProblemCode.APPLY_CONTRACT_FLAG_UNSUPPORTED.value,
+                    message=f"PLT analysis {analysis_id} applies contract dates and cannot be grouped.",
+                    analysis_ids=(analysis_id,),
+                ))
+
+        if not engine or not peril or not region:
+            report(GroupingProblem(
+                code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
+                message=(f"Analysis {analysis_id} has a region missing engine, peril, "
+                         "or region metadata."),
+                analysis_ids=(analysis_id,),
+            ))
+            continue
+
+        resolved_version, version_error = lookups.model_version(engine, region, peril)
+        if version_error is not None or resolved_version is None:
+            code = (GroupingProblemCode.MODEL_VERSION_MAPPING_AMBIGUOUS.value
+                    if "multiple" in str(version_error).lower()
+                    else GroupingProblemCode.MODEL_VERSION_MAPPING_MISSING.value)
+            report(GroupingProblem(
+                code=code,
+                message=(f"Model version for analysis {analysis_id}, engine {engine}, "
+                         f"region {region}, and peril {peril} was not resolved exactly."),
+                analysis_ids=(analysis_id,),
+            ))
+            continue
+
+        if framework == "PLT" and pet_id is not None:
+            broad_model_region = f"{region}{peril}"
+            pet, _ = lookups.pet_metadata(
+                pet_id,
+                resolved_version,
+                broad_model_region,
+            )
+            if pet is not None:
+                pet_name = _text(pet.get("petName"))
+
+        if framework == "ELT" and scheme_id is None:
+            report(GroupingProblem(
+                code=GroupingProblemCode.EVENT_RATE_SCHEME_MISSING.value,
+                message=f"ELT analysis {analysis_id} has no positive event-rate scheme ID.",
+                analysis_ids=(analysis_id,),
+                partition=GroupingPartitionKey(peril, region, resolved_version),
+            ))
+
+        model_region = f"{sub_region}{peril}" if sub_region else f"{region}{peril}"
+        region_facts.append(GroupingRegionFact(
+            analysis_id=analysis_id,
+            framework=framework,
+            peril_code=peril,
+            region_code=region,
+            model_version=resolved_version,
+            engine_version=engine,
+            sub_region=sub_region,
+            model_region_code=model_region,
+            event_rate_scheme_id=scheme_id if framework == "ELT" else None,
+            pet_id=pet_id if framework == "PLT" else None,
+            pet_name=pet_name,
+            periods=periods if framework == "PLT" else None,
+            apply_contract_flag=apply_contract,
+        ))
+    return region_facts, observed_frameworks
+
+
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
@@ -688,72 +964,7 @@ class GroupingManager:
         members: List[GroupingMember] = []
         treaties: List[Dict[str, Any]] = []
         labels: Dict[int, Optional[str]] = {}
-        scheme_rows: Optional[Tuple[Mapping[str, Any], ...]] = None
-        version_cache: Dict[Tuple[str, str, str], Tuple[Optional[str], Optional[Exception]]] = {}
-        pet_cache: Dict[
-            Tuple[int, str, Optional[str]],
-            Tuple[Optional[Dict[str, Any]], Optional[Exception]],
-        ] = {}
-
-        def model_version(engine: str, region: str, peril: str) -> Tuple[Optional[str], Optional[Exception]]:
-            key = (engine, region, peril)
-            if key not in version_cache:
-                try:
-                    value = self._irp.reference_data.get_model_version_by_engine_region_peril(
-                        engine, region, peril
-                    )
-                    version_cache[key] = (str(value), None)
-                except IRPAPIError as exc:
-                    version_cache[key] = (None, exc)
-            return version_cache[key]
-
-        def pet_metadata(
-            pet_id: int,
-            model_version: str,
-            model_region_code: Optional[str],
-        ) -> Tuple[Optional[Dict[str, Any]], Optional[Exception]]:
-            key = (pet_id, model_version, model_region_code)
-            if key not in pet_cache:
-                try:
-                    value = self._irp.reference_data.get_pet_metadata_exact(
-                        pet_id=pet_id,
-                        model_version=model_version,
-                        model_region_code=model_region_code,
-                    )
-                    pet_cache[key] = (value, None)
-                except IRPAPIError as exc:
-                    pet_cache[key] = (None, exc)
-            return pet_cache[key]
-
-        def event_rate_scheme_rows() -> Tuple[Mapping[str, Any], ...]:
-            """
-            Return active Risk Modeler event-rate scheme reference rows.
-
-            Event-rate applicability and CCM simulation-set exclusion both use
-            fields from the same active reference response.
-            """
-            nonlocal scheme_rows
-            if scheme_rows is None:
-                payload = self._irp.reference_data.get_event_rate_schemes()
-                rows = payload.get("items") if isinstance(payload, Mapping) else payload
-                if (
-                    isinstance(rows, (str, bytes))
-                    or not isinstance(rows, Sequence)
-                ):
-                    raise IRPAPIError(
-                        "Event-rate scheme search returned a non-list response"
-                    )
-                scheme_rows = tuple(
-                    row for row in rows if isinstance(row, Mapping)
-                )
-            return scheme_rows
-
-        def scheme_name(scheme_id: int) -> Optional[str]:
-            """Return Risk Modeler's label for an event-rate scheme ID."""
-            for row in event_rate_scheme_rows():
-                if row.get("eventRateSchemeId") == scheme_id:
-                    return _text(row.get("eventRateSchemeName"))
-            return None
+        lookups = _ReferenceLookups(self._irp)
 
         for analysis_id in analysis_ids:
             try:
@@ -815,136 +1026,19 @@ class GroupingManager:
                 ))
                 raw_regions = []
 
-            analysis_framework = _text(_field(analysis, "analysisFramework", "framework"))
-            analysis_framework = analysis_framework.upper() if analysis_framework else None
+            analysis_framework = _analysis_framework(analysis)
             engine_type = _text(_field(analysis, "engineType", "type"))
             is_group = bool(_field(analysis, "isGroup")) or (engine_type or "").upper() == "GROUP"
             detail_engine = _text(_field(analysis, "engineVersion", "softwareVersionCode"))
             detail_peril = _text(_field(analysis, "perilCode", "peril"))
             detail_region = _text(_field(analysis, "regionCode", "region"))
-            detail_peril_name = _text(analysis.get("peril"))
-            detail_region_name = _text(analysis.get("region"))
             analysis_scheme, analysis_label = _event_rate_from_analysis(analysis)
             if analysis_scheme is not None:
                 labels[analysis_scheme] = analysis_label
 
-            region_facts: List[GroupingRegionFact] = []
-            observed_frameworks = set()
-            for raw_region in raw_regions:
-                if not isinstance(raw_region, Mapping):
-                    problems.append(GroupingProblem(
-                        code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
-                        message=f"Analysis {analysis_id} returned a malformed region row.",
-                        analysis_ids=(analysis_id,),
-                    ))
-                    continue
-                framework = _text(_field(raw_region, "framework", "analysisFramework"))
-                framework = (framework or analysis_framework or "").upper()
-                if framework not in {"ELT", "PLT"}:
-                    problems.append(GroupingProblem(
-                        code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
-                        message=f"Analysis {analysis_id} has a region with no ELT/PLT classification.",
-                        analysis_ids=(analysis_id,),
-                    ))
-                    continue
-                observed_frameworks.add(framework)
-                row_engine = _text(_field(raw_region, "engineVersion", "softwareVersionCode"))
-                row_peril = _resolve_code(
-                    _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
-                )
-                row_region = _resolve_code(
-                    _field(raw_region, "regionCode", "region"), detail_region, detail_region_name
-                )
-                engine = row_engine or detail_engine
-                peril = row_peril or detail_peril
-                region = row_region or detail_region
-                sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
-                apply_contract = bool(_field(raw_region, "applyContractFlag"))
-                scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
-                scheme_id = int(scheme) if _positive_int(scheme) else analysis_scheme
-                pet_value = _field(raw_region, "petId", "simulationSetId")
-                pet_id = int(pet_value) if _positive_int(pet_value) else None
-                pet_name: Optional[str] = None
-                period_value = _field(raw_region, "periods", "simulationPeriods")
-                periods = int(period_value) if _positive_int(period_value) else None
-
-                if framework == "PLT":
-                    if pet_id is None:
-                        problems.append(GroupingProblem(
-                            code=GroupingProblemCode.PET_ID_MISSING.value,
-                            message=f"PLT analysis {analysis_id} has a region with no positive PET ID.",
-                            analysis_ids=(analysis_id,),
-                        ))
-                    if periods is None:
-                        problems.append(GroupingProblem(
-                            code=GroupingProblemCode.PET_PERIODS_MISSING.value,
-                            message=f"PLT analysis {analysis_id} has no positive period count.",
-                            analysis_ids=(analysis_id,),
-                            pet_ids=(pet_id,) if pet_id else (),
-                        ))
-                    if apply_contract:
-                        problems.append(GroupingProblem(
-                            code=GroupingProblemCode.APPLY_CONTRACT_FLAG_UNSUPPORTED.value,
-                            message=f"PLT analysis {analysis_id} applies contract dates and cannot be grouped.",
-                            analysis_ids=(analysis_id,),
-                        ))
-
-                if not engine or not peril or not region:
-                    problems.append(GroupingProblem(
-                        code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
-                        message=(f"Analysis {analysis_id} has a region missing engine, peril, "
-                                 "or region metadata."),
-                        analysis_ids=(analysis_id,),
-                    ))
-                    continue
-
-                resolved_version, version_error = model_version(engine, region, peril)
-                if version_error is not None or resolved_version is None:
-                    code = (GroupingProblemCode.MODEL_VERSION_MAPPING_AMBIGUOUS.value
-                            if "multiple" in str(version_error).lower()
-                            else GroupingProblemCode.MODEL_VERSION_MAPPING_MISSING.value)
-                    problems.append(GroupingProblem(
-                        code=code,
-                        message=(f"Model version for analysis {analysis_id}, engine {engine}, "
-                                 f"region {region}, and peril {peril} was not resolved exactly."),
-                        analysis_ids=(analysis_id,),
-                    ))
-                    continue
-
-                if framework == "PLT" and pet_id is not None:
-                    broad_model_region = f"{region}{peril}"
-                    pet, _ = pet_metadata(
-                        pet_id,
-                        resolved_version,
-                        broad_model_region,
-                    )
-                    if pet is not None:
-                        pet_name = _text(pet.get("petName"))
-
-                if framework == "ELT" and scheme_id is None:
-                    problems.append(GroupingProblem(
-                        code=GroupingProblemCode.EVENT_RATE_SCHEME_MISSING.value,
-                        message=f"ELT analysis {analysis_id} has no positive event-rate scheme ID.",
-                        analysis_ids=(analysis_id,),
-                        partition=GroupingPartitionKey(peril, region, resolved_version),
-                    ))
-
-                model_region = f"{sub_region}{peril}" if sub_region else f"{region}{peril}"
-                region_facts.append(GroupingRegionFact(
-                    analysis_id=analysis_id,
-                    framework=framework,
-                    peril_code=peril,
-                    region_code=region,
-                    model_version=resolved_version,
-                    engine_version=engine,
-                    sub_region=sub_region,
-                    model_region_code=model_region,
-                    event_rate_scheme_id=scheme_id if framework == "ELT" else None,
-                    pet_id=pet_id if framework == "PLT" else None,
-                    pet_name=pet_name,
-                    periods=periods if framework == "PLT" else None,
-                    apply_contract_flag=apply_contract,
-                ))
+            region_facts, observed_frameworks = _region_facts(
+                analysis_id, analysis, raw_regions, lookups, problems.append
+            )
 
             if analysis_framework and observed_frameworks and observed_frameworks != {analysis_framework}:
                 problems.append(GroupingProblem(
@@ -994,7 +1088,7 @@ class GroupingManager:
             ]
             active_event_rate_scheme_ids = {
                 int(row["eventRateSchemeId"])
-                for row in event_rate_scheme_rows()
+                for row in lookups.event_rate_scheme_rows()
                 if _positive_int(row.get("eventRateSchemeId"))
             }
 
@@ -1017,7 +1111,7 @@ class GroupingManager:
                     int(row["eventRateSchemeId"]): _text(
                         row.get("eventRateSchemeName")
                     )
-                    for row in event_rate_scheme_rows()
+                    for row in lookups.event_rate_scheme_rows()
                     if (
                         _positive_int(row.get("eventRateSchemeId"))
                         and row.get("perilCode") == key.peril_code
@@ -1047,7 +1141,7 @@ class GroupingManager:
             else:
                 event_rate_options = tuple(
                     EventRateSchemeOption(
-                        scheme_id, scheme_name(scheme_id) or labels.get(scheme_id)
+                        scheme_id, lookups.scheme_name(scheme_id) or labels.get(scheme_id)
                     )
                     for scheme_id in scheme_ids
                 )

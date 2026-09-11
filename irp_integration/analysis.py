@@ -7,7 +7,8 @@ Handles portfolio analysis submission, job tracking, and result retrieval.
 import json
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Dict, List, Any, Mapping, Optional, Tuple, TYPE_CHECKING
 from .analysis_validation import (
     analysis_type_for_software_version,
     validate_event_rate_scheme_settings,
@@ -22,6 +23,14 @@ from .constants import (
     CREATE_EXPORT_JOB
 )
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
+from .grouping import (
+    GroupingManager,
+    GroupingRegionFact,
+    _positive_int,
+    _ReferenceLookups,
+    _region_facts,
+    _text,
+)
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty
 from .utils import extract_id_from_location_header, paginate_search
 
@@ -33,6 +42,59 @@ if TYPE_CHECKING:
     from .portfolio import PortfolioManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AppliedTreaty:
+    """One treaty as applied to one analysis, with the name Risk Modeler shows.
+
+    ``terms`` are the analysis-level loss-affecting values, normalized the way
+    ``GroupingManager`` normalizes them for its treaty comparison: what the
+    analysis ran with, not the EDM treaty definition. An analysis run in CAD
+    against a treaty defined in USD reports CAD.
+    """
+
+    treaty_id: Optional[int]
+    treaty_number: str
+    treaty_name: Optional[str]
+    terms: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RunDescription:
+    """What one analysis ran with: regions, event-rate scheme names, treaties.
+
+    ``regions`` holds one ``GroupingRegionFact`` per region row the Platform
+    returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports
+    23 regions. ``event_rate_scheme_names`` names every
+    ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler
+    event-rate scheme row resolves; an ID no active row carries is absent.
+    """
+
+    analysis_id: int
+    is_group: bool
+    regions: Tuple[GroupingRegionFact, ...]
+    event_rate_scheme_names: Mapping[int, str]
+    treaties: Tuple[AppliedTreaty, ...]
+
+
+def _carries_group_properties(analysis: Mapping[str, Any]) -> bool:
+    """Report whether an analysis detail carries a group-only property.
+
+    A Risk Modeler broker group (``groupType`` ``INGP``) reports ``isGroup``
+    false and lists the schemes it was grouped under in
+    ``additionalProperties`` under the key ``eventRateSchemes`` or
+    ``simulationSets``.
+    """
+    properties = analysis.get("additionalProperties") or []
+    if not isinstance(properties, list):
+        return False
+    return any(
+        isinstance(entry, Mapping)
+        and entry.get("key") in {"eventRateSchemes", "simulationSets"}
+        for entry in properties
+    )
+
 
 class AnalysisManager:
     """Manager for analysis operations."""
@@ -985,6 +1047,82 @@ class AnalysisManager:
                 offset=offset
             ),
             f"Treaty search for analysis ID {analysis_id}"
+        )
+
+    def describe_run(self, analysis_id: int) -> RunDescription:
+        """
+        Describe what one analysis ran with.
+
+        Reads the analysis detail, its region rows, and its treaties, and names
+        each region's event-rate scheme from the active Risk Modeler reference
+        rows. Regions are normalized the way ``GroupingManager.inspect``
+        normalizes them: a region row's peril display name resolves to the
+        detail's ``perilCode``, and a PLT region's ``petId`` is named through
+        the ``PETMetadata`` row for the region's model version, since PET ID 12
+        exists under more than one model version with a different ``petName``.
+        A ``petId`` no ``PETMetadata`` row qualifies keeps its ID and periods
+        and reports ``pet_name`` None.
+
+        Args:
+            analysis_id: Analysis ID
+
+        Returns:
+            ``RunDescription`` with the region facts, the event-rate scheme
+            names those regions carry, and the treaties applied to the analysis
+
+        Raises:
+            IRPValidationError: If analysis_id is invalid
+            IRPAPIError: If the analysis, region, treaty, or reference-data read
+                fails
+        """
+        validate_positive_int(analysis_id, "analysis_id")
+
+        analysis = self.get_analysis_by_id(analysis_id)
+        lookups = _ReferenceLookups(self._irp)
+
+        raw_regions = self.get_regions(analysis_id)
+        regions: List[GroupingRegionFact] = []
+        if isinstance(raw_regions, list):
+            # A region row the grouping rules would reject still belongs in the
+            # description, so the problems those rules report are discarded.
+            regions, _ = _region_facts(
+                analysis_id, analysis, raw_regions, lookups, lambda problem: None
+            )
+
+        scheme_names: Dict[int, str] = {}
+        for fact in regions:
+            scheme_id = fact.event_rate_scheme_id
+            if scheme_id is None or scheme_id in scheme_names:
+                continue
+            name = lookups.scheme_name(scheme_id)
+            if name is not None:
+                scheme_names[scheme_id] = name
+
+        treaties: List[AppliedTreaty] = []
+        for treaty in self.search_analysis_treaties_paginated(analysis_id):
+            if not isinstance(treaty, Mapping):
+                raise IRPAPIError(
+                    f"Treaty search for analysis ID {analysis_id} returned a malformed treaty"
+                )
+            treaty_number = _text(treaty.get("treatyNumber"))
+            if treaty_number is None:
+                raise IRPAPIError(
+                    f"Treaty for analysis ID {analysis_id} has no Treaty Number"
+                )
+            treaty_id = treaty.get("treatyId")
+            treaties.append(AppliedTreaty(
+                treaty_id=int(treaty_id) if _positive_int(treaty_id) else None,
+                treaty_number=treaty_number,
+                treaty_name=_text(treaty.get("treatyName")),
+                terms=GroupingManager._loss_affecting_treaty_terms(treaty),
+            ))
+
+        return RunDescription(
+            analysis_id=analysis_id,
+            is_group=bool(analysis.get("isGroup")) or _carries_group_properties(analysis),
+            regions=tuple(regions),
+            event_rate_scheme_names=scheme_names,
+            treaties=tuple(treaties),
         )
 
     def submit_analysis_export_job(
