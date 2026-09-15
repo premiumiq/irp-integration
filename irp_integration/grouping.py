@@ -362,6 +362,28 @@ def _resolve_code(value: Any, code: Optional[str], name: Optional[str]) -> Optio
     return text
 
 
+def _is_group(analysis: Mapping[str, Any]) -> bool:
+    """Report whether an analysis detail describes a group.
+
+    ``isGroup`` alone does not answer the question: a Risk Modeler broker group
+    reports ``isGroup`` false with ``groupType`` ``INGP``. ``GetAnalysisResponse``
+    documents ``groupType`` as one of ``ANLS``, ``CDGP``, ``INGP``, ``MCGP`` and
+    ``UNRECOGNIZED``, and ``engineType`` as including both ``Group`` and
+    ``CEPGroup``.
+
+    Args:
+        analysis: Analysis detail from ``AnalysisManager.get_analysis_by_id``
+
+    Returns:
+        True when the detail reports a group by any of the three fields
+    """
+    if _field(analysis, "isGroup"):
+        return True
+    engine = (_text(_field(analysis, "engineType", "type")) or "").upper()
+    group = (_text(_field(analysis, "groupType")) or "").upper()
+    return engine in {"GROUP", "CEPGROUP"} or group in {"CDGP", "INGP", "MCGP"}
+
+
 def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int], Optional[str]]:
     direct = _field(analysis, "eventRateSchemeId", "rateSchemeId")
     label = _text(_field(analysis, "eventRateSchemeName", "rateSchemeName"))
@@ -1028,7 +1050,7 @@ class GroupingManager:
 
             analysis_framework = _analysis_framework(analysis)
             engine_type = _text(_field(analysis, "engineType", "type"))
-            is_group = bool(_field(analysis, "isGroup")) or (engine_type or "").upper() == "GROUP"
+            is_group = _is_group(analysis)
             detail_engine = _text(_field(analysis, "engineVersion", "softwareVersionCode"))
             detail_peril = _text(_field(analysis, "perilCode", "peril"))
             detail_region = _text(_field(analysis, "regionCode", "region"))

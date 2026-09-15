@@ -26,6 +26,7 @@ from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPVali
 from .grouping import (
     GroupingManager,
     GroupingRegionFact,
+    _is_group,
     _positive_int,
     _ReferenceLookups,
     _region_facts,
@@ -76,24 +77,6 @@ class RunDescription:
     regions: Tuple[GroupingRegionFact, ...]
     event_rate_scheme_names: Mapping[int, str]
     treaties: Tuple[AppliedTreaty, ...]
-
-
-def _carries_group_properties(analysis: Mapping[str, Any]) -> bool:
-    """Report whether an analysis detail carries a group-only property.
-
-    A Risk Modeler broker group (``groupType`` ``INGP``) reports ``isGroup``
-    false and lists the schemes it was grouped under in
-    ``additionalProperties`` under the key ``eventRateSchemes`` or
-    ``simulationSets``.
-    """
-    properties = analysis.get("additionalProperties") or []
-    if not isinstance(properties, list):
-        return False
-    return any(
-        isinstance(entry, Mapping)
-        and entry.get("key") in {"eventRateSchemes", "simulationSets"}
-        for entry in properties
-    )
 
 
 class AnalysisManager:
@@ -1119,7 +1102,7 @@ class AnalysisManager:
 
         return RunDescription(
             analysis_id=analysis_id,
-            is_group=bool(analysis.get("isGroup")) or _carries_group_properties(analysis),
+            is_group=_is_group(analysis),
             regions=tuple(regions),
             event_rate_scheme_names=scheme_names,
             treaties=tuple(treaties),

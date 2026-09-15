@@ -236,8 +236,8 @@ BROKER_DLM_TREATIES = [
     },
 ]
 
-# Analysis 104, a broker group: isGroup is false and groupType is INGP,
-# and the schemes it was grouped under are listed in additionalProperties.
+# Analysis 104, a broker group: isGroup is false and groupType is INGP, and
+# engineType is Group.
 BROKER_GROUP_DETAIL = {
     "analysisId": 104,
     "analysisName": "example_broker_group",
@@ -519,9 +519,17 @@ def test_broker_dlm_omits_an_event_rate_scheme_no_active_row_names():
     assert description.event_rate_scheme_names == {}
 
 
-def test_broker_group_properties_report_a_group():
-    """Read INGP as a group even though the detail reports isGroup false."""
+def test_broker_group_type_reports_a_group():
+    """Read groupType INGP as a group even though the detail reports isGroup false."""
     manager, _ = make_manager(BROKER_GROUP_DETAIL, [BROKER_GROUP_REGION_ROW])
+
+    assert manager.describe_run(104).is_group is True
+
+
+def test_cep_group_engine_type_reports_a_group():
+    """Read engineType CEPGroup as a group: GetAnalysisResponse lists it beside Group."""
+    detail = dict(BROKER_GROUP_DETAIL, engineType="CEPGroup", groupType="UNRECOGNIZED")
+    manager, _ = make_manager(detail, [BROKER_GROUP_REGION_ROW])
 
     assert manager.describe_run(104).is_group is True
 
