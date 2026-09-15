@@ -428,6 +428,7 @@ def test_own_dlm_reports_every_region_row_and_names_its_scheme():
     assert description.analysis_id == 101
     assert description.is_group is False
     assert len(description.regions) == 23
+    assert description.problems == ()
     assert {region.event_rate_scheme_id for region in description.regions} == {739}
     assert {region.framework for region in description.regions} == {"ELT"}
     assert {region.peril_code for region in description.regions} == {"WS"}
@@ -561,5 +562,26 @@ def test_empty_region_list_describes_no_regions():
     description = manager.describe_run(101)
 
     assert description.regions == ()
+    assert description.problems == ()
     assert description.event_rate_scheme_names == {}
     assert len(description.treaties) == 1
+
+
+def test_empty_analysis_detail_raises():
+    """Raise IRPAPIError rather than reading region rows against an empty detail."""
+    manager, _ = make_manager({}, [])
+
+    with pytest.raises(IRPAPIError, match="Analysis 101 returned no analysis details"):
+        manager.describe_run(101)
+
+
+def test_non_list_region_response_raises():
+    """Raise IRPAPIError rather than describing zero regions in silence."""
+    client = FakeClient([
+        FakeResponse(200, OWN_DLM_DETAIL),
+        FakeResponse(200, {"items": []}),
+    ])
+    irp = SimpleNamespace(client=client, reference_data=FakeReferenceDataManager())
+
+    with pytest.raises(IRPAPIError, match="returned a non-list response"):
+        AnalysisManager(irp).describe_run(101)

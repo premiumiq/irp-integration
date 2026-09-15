@@ -25,6 +25,7 @@ from .constants import (
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
 from .grouping import (
     GroupingManager,
+    GroupingProblem,
     GroupingRegionFact,
     _is_group,
     _positive_int,
@@ -67,9 +68,12 @@ class RunDescription:
 
     ``regions`` holds one ``GroupingRegionFact`` per region row the Platform
     returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports
-    23 regions. ``event_rate_scheme_names`` names every
-    ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler
-    event-rate scheme row resolves; an ID no active row carries is absent.
+    23 regions. A row whose framework, engine, peril, region, or model version
+    did not resolve is absent from ``regions`` and reported in ``problems``, so
+    the two together account for every row the Platform returned.
+    ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in
+    ``regions`` that an active Risk Modeler event-rate scheme row resolves; an
+    ID no active row carries is absent.
     """
 
     analysis_id: int
@@ -77,6 +81,7 @@ class RunDescription:
     regions: Tuple[GroupingRegionFact, ...]
     event_rate_scheme_names: Mapping[int, str]
     treaties: Tuple[AppliedTreaty, ...]
+    problems: Tuple[GroupingProblem, ...]
 
 
 class AnalysisManager:
@@ -1046,31 +1051,40 @@ class AnalysisManager:
         A ``petId`` no ``PETMetadata`` row qualifies keeps its ID and periods
         and reports ``pet_name`` None.
 
+        A region row that does not normalize is reported in ``problems``
+        rather than raised on: one unresolved sub-region does not make the rest
+        of an otherwise readable analysis unavailable.
+
         Args:
             analysis_id: Analysis ID
 
         Returns:
-            ``RunDescription`` with the region facts, the event-rate scheme
-            names those regions carry, and the treaties applied to the analysis
+            ``RunDescription`` with the region facts, the problems found in the
+            rows left out of them, the event-rate scheme names those regions
+            carry, and the treaties applied to the analysis
 
         Raises:
             IRPValidationError: If analysis_id is invalid
             IRPAPIError: If the analysis, region, treaty, or reference-data read
-                fails
+                fails, if the analysis detail is empty or is not an object, or
+                if the region search returns a non-list response
         """
         validate_positive_int(analysis_id, "analysis_id")
 
         analysis = self.get_analysis_by_id(analysis_id)
+        if not isinstance(analysis, Mapping) or not analysis:
+            raise IRPAPIError(f"Analysis {analysis_id} returned no analysis details")
         lookups = _ReferenceLookups(self._irp)
 
         raw_regions = self.get_regions(analysis_id)
-        regions: List[GroupingRegionFact] = []
-        if isinstance(raw_regions, list):
-            # A region row the grouping rules would reject still belongs in the
-            # description, so the problems those rules report are discarded.
-            regions, _ = _region_facts(
-                analysis_id, analysis, raw_regions, lookups, lambda problem: None
+        if not isinstance(raw_regions, list):
+            raise IRPAPIError(
+                f"Region search for analysis ID {analysis_id} returned a non-list response"
             )
+        problems: List[GroupingProblem] = []
+        regions, _ = _region_facts(
+            analysis_id, analysis, raw_regions, lookups, problems.append
+        )
 
         scheme_names: Dict[int, str] = {}
         for fact in regions:
@@ -1106,6 +1120,7 @@ class AnalysisManager:
             regions=tuple(regions),
             event_rate_scheme_names=scheme_names,
             treaties=tuple(treaties),
+            problems=tuple(problems),
         )
 
     def submit_analysis_export_job(

@@ -1741,7 +1741,7 @@ def __init__(
 
 What one analysis ran with: regions, event-rate scheme names, treaties.
 
-``regions`` holds one ``GroupingRegionFact`` per region row the Platform returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports 23 regions. ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler event-rate scheme row resolves; an ID no active row carries is absent.
+``regions`` holds one ``GroupingRegionFact`` per region row the Platform returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports 23 regions. A row whose framework, engine, peril, region, or model version did not resolve is absent from ``regions`` and reported in ``problems``, so the two together account for every row the Platform returned. ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler event-rate scheme row resolves; an ID no active row carries is absent.
 
 #### `__init__`
 
@@ -1752,7 +1752,8 @@ def __init__(
     is_group: bool,
     regions: Tuple[irp_integration.grouping.GroupingRegionFact, ...],
     event_rate_scheme_names: Mapping[int, str],
-    treaties: Tuple[irp_integration.analysis.AppliedTreaty, ...]
+    treaties: Tuple[irp_integration.analysis.AppliedTreaty, ...],
+    problems: Tuple[irp_integration.grouping.GroupingProblem, ...]
 )
 ```
 
@@ -2289,17 +2290,23 @@ exists under more than one model version with a different ``petName``.
 A ``petId`` no ``PETMetadata`` row qualifies keeps its ID and periods
 and reports ``pet_name`` None.
 
+A region row that does not normalize is reported in ``problems``
+rather than raised on: one unresolved sub-region does not make the rest
+of an otherwise readable analysis unavailable.
+
 **Arguments:**
  - **analysis_id:**  Analysis ID
 
 **Returns:**
-> ``RunDescription`` with the region facts, the event-rate scheme
-> names those regions carry, and the treaties applied to the analysis
+> ``RunDescription`` with the region facts, the problems found in the
+> rows left out of them, the event-rate scheme names those regions
+> carry, and the treaties applied to the analysis
 
 **Raises:**
  - **IRPValidationError:**  If analysis_id is invalid
  - **IRPAPIError:**  If the analysis, region, treaty, or reference-data read
-   fails
+   fails, if the analysis detail is empty or is not an object, or
+   if the region search returns a non-list response
 
 #### `submit_analysis_export_job`
 
