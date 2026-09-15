@@ -1,10 +1,11 @@
 """Offline contract tests for ``AnalysisManager.describe_run``.
 
 The analysis details, region rows, treaties and reference rows below are
-trimmed captures taken from the sandbox tenant on 2026-09-11. Two values are
-invented because the capture did not cover them, and each is marked where it
-appears: the model versions for ``RL25``/``RL23`` North Atlantic windstorm, and
-the peril, model region and model version of event-rate scheme 739.
+trimmed to the fields ``describe_run`` reads and keep the shapes the Platform
+returns. Reference values the responses did not cover are invented, and each is
+marked where it appears: the model versions for ``RL25``/``RL23`` North
+Atlantic windstorm and ``RL25`` North America earthquake, and the peril, model
+region and model version of event-rate schemes 739 and 740.
 """
 
 from types import SimpleNamespace
@@ -16,11 +17,15 @@ from conftest import FakeClient, FakeResponse
 from irp_integration.analysis import AnalysisManager
 from irp_integration.exceptions import IRPAPIError
 
-# Analysis 5741781, an RL25 DLM ELT analysis of one own portfolio.
+# Invented names and identifiers. Nothing here may name a real EDM, RDM,
+# portfolio, analysis, treaty or tenant: this file ships in the sdist, so a name
+# used here is a name published to PyPI.
+
+# Analysis 101, an RL25 DLM ELT analysis of one own portfolio.
 OWN_DLM_DETAIL = {
-    "analysisId": 5741781,
-    "analysisName": "CRE_HU_US_US HU wSS wDS - PROP Stochastic",
-    "exposureName": "TY2608_SampleCo_0825_25EDM",
+    "analysisId": 101,
+    "analysisName": "example_ws_analysis",
+    "exposureName": "example_edm",
     "engineType": "DLM",
     "engineVersion": "RL25",
     "analysisFramework": "ELT",
@@ -38,10 +43,10 @@ OWN_DLM_DETAIL = {
     ],
     "simulationSetId": 0,
     "simulationPeriods": 0,
-    "modelProfile": {"id": 5250, "code": "", "name": "US HU wSS wDS - PROP"},
+    "modelProfile": {"id": 5250, "code": "", "name": "example_ws_model_profile"},
     "additionalProperties": [
         {"key": "exposure", "properties": [
-            {"id": 5, "name": "HU_US", "value": "TY2608_SampleCo_0825_25EDM"}
+            {"id": 5, "name": "example_ws_portfolio", "value": "example_edm"}
         ]},
         {"key": "dataVersion", "properties": [
             {"id": 0, "name": "", "value": "22.0.0"}
@@ -58,7 +63,7 @@ OWN_DLM_REGION_ROW = {
     "peril": "Windstorm",
     "eventRateSchemeId": 739,
     "framework": "ELT",
-    "analysisId": 5741781,
+    "analysisId": 101,
     "modelProfileId": 5250,
     "petId": 0,
     "numSamples": 0,
@@ -77,7 +82,7 @@ NA_WS_SUB_REGIONS = (
 
 OWN_DLM_TREATIES = [
     {
-        "treatyId": 33833,
+        "treatyId": 21,
         "treatyNumber": "PR1",
         "treatyName": "PR1",
         "treatyType": "WORK",
@@ -93,16 +98,16 @@ OWN_DLM_TREATIES = [
         "effectiveDate": "2026-01-01T00:00:00.000Z",
         "expirationDate": "2026-12-31T00:00:00.000Z",
         "isValid": True,
-        "analysisId": 5741781,
-        "uri": "/platform/riskdata/v1/analyses/5741781/treaties/33833",
+        "analysisId": 101,
+        "uri": "/platform/riskdata/v1/analyses/101/treaties/21",
     },
 ]
 
-# Analysis 5733173, an HDv3.0 PLT analysis of one own portfolio.
+# Analysis 102, an HDv3.0 PLT analysis of one own portfolio.
 OWN_HD_DETAIL = {
-    "analysisId": 5733173,
-    "analysisName": "CRE_EQ_NZ_COM_HD_NZ_3-0_Time-Independent",
-    "exposureName": "TY2608_SampleCo_0825_25EDM",
+    "analysisId": 102,
+    "analysisName": "example_eq_analysis",
+    "exposureName": "example_edm",
     "engineType": "HD",
     "engineVersion": "HDv3.0",
     "analysisFramework": "PLT",
@@ -117,13 +122,13 @@ OWN_HD_DETAIL = {
     "eventRateSchemeNames": [],
     "simulationSetId": 0,
     "simulationPeriods": 0,
-    "modelProfile": {"id": 5328, "code": "", "name": "HD_NZ_3.0_Time-Independent"},
+    "modelProfile": {"id": 5328, "code": "", "name": "example_eq_model_profile"},
     "additionalProperties": [
         {"key": "dataVersion", "properties": [
             {"id": 0, "name": "", "value": "22.0.0"}
         ]},
         {"key": "exposure", "properties": [
-            {"id": 1, "name": "EQ_NZ_COM", "value": "TY2608_SampleCo_0825_25EDM"}
+            {"id": 1, "name": "example_eq_portfolio", "value": "example_edm"}
         ]},
     ],
 }
@@ -134,7 +139,7 @@ OWN_HD_REGION_ROW = {
     "peril": "Earthquake",
     "eventRateSchemeId": 0,
     "framework": "PLT",
-    "analysisId": 5733173,
+    "analysisId": 102,
     "modelProfileId": 5328,
     "petId": 12,
     "numSamples": 1,
@@ -143,11 +148,11 @@ OWN_HD_REGION_ROW = {
     "engineVersion": "HDv3.0",
 }
 
-# Analysis 5689560, an RL23 DLM ELT analysis imported from a broker RDM.
+# Analysis 103, an RL23 DLM ELT analysis imported from a broker RDM.
 BROKER_DLM_DETAIL = {
-    "analysisId": 5689560,
-    "analysisName": "USFL_Commercial_LT",
-    "sourceRdmName": "usfl_broker_results",
+    "analysisId": 103,
+    "analysisName": "example_broker_analysis",
+    "sourceRdmName": "example_rdm",
     "exposureName": "",
     "engineType": "DLM",
     "engineVersion": "RL23",
@@ -167,7 +172,7 @@ BROKER_DLM_DETAIL = {
     "modelProfile": {"id": 0, "code": "", "name": ""},
     "additionalProperties": [
         {"key": "exposure", "properties": [
-            {"id": 3, "name": "", "value": "RM_EDM_202503_Test_USFL_USFL"}
+            {"id": 3, "name": "", "value": "example_broker_edm"}
         ]},
         {"key": "dataVersion", "properties": [{"id": 0, "name": "", "value": ""}]},
     ],
@@ -179,7 +184,7 @@ BROKER_DLM_REGION_ROW = {
     "peril": "Windstorm",
     "eventRateSchemeId": 577,
     "framework": "ELT",
-    "analysisId": 5689560,
+    "analysisId": 103,
     "modelProfileId": 0,
     "petId": 0,
     "numSamples": 0,
@@ -190,7 +195,7 @@ BROKER_DLM_REGION_ROW = {
 
 BROKER_DLM_TREATIES = [
     {
-        "treatyId": 31482,
+        "treatyId": 22,
         "treatyNumber": "XPR_1_100_Fld",
         "treatyName": "XPR_1_100_Fld",
         "treatyType": "WORK",
@@ -206,11 +211,11 @@ BROKER_DLM_TREATIES = [
         "effectiveDate": "2000-01-01T00:00:00.000Z",
         "expirationDate": "2030-12-31T00:00:00.000Z",
         "isValid": True,
-        "analysisId": 5689560,
-        "uri": "/platform/riskdata/v1/analyses/5689560/treaties/31482",
+        "analysisId": 103,
+        "uri": "/platform/riskdata/v1/analyses/103/treaties/22",
     },
     {
-        "treatyId": 31481,
+        "treatyId": 23,
         "treatyNumber": "XPR_1_95_Fld",
         "treatyName": "XPR_1_95_Fld",
         "treatyType": "WORK",
@@ -226,17 +231,17 @@ BROKER_DLM_TREATIES = [
         "effectiveDate": "2000-01-01T00:00:00.000Z",
         "expirationDate": "2030-12-31T00:00:00.000Z",
         "isValid": True,
-        "analysisId": 5689560,
-        "uri": "/platform/riskdata/v1/analyses/5689560/treaties/31481",
+        "analysisId": 103,
+        "uri": "/platform/riskdata/v1/analyses/103/treaties/23",
     },
 ]
 
-# Analysis 5723350, a broker group: isGroup is false and groupType is INGP,
+# Analysis 104, a broker group: isGroup is false and groupType is INGP,
 # and the schemes it was grouped under are listed in additionalProperties.
 BROKER_GROUP_DETAIL = {
-    "analysisId": 5723350,
-    "analysisName": "HU_US",
-    "sourceRdmName": "Broker-RDM",
+    "analysisId": 104,
+    "analysisName": "example_broker_group",
+    "sourceRdmName": "example_rdm",
     "engineType": "Group",
     "engineVersion": "RL25",
     "analysisFramework": "ELT",
@@ -270,12 +275,12 @@ BROKER_GROUP_REGION_ROW = dict(
     BROKER_DLM_REGION_ROW,
     subRegion="DC",
     eventRateSchemeId=578,
-    analysisId=5723350,
+    analysisId=104,
     engineVersion="RL25",
 )
 
 # Three of the 151 active event-rate scheme rows, plus scheme 739. The name of
-# 739 is the one analysis 5741781 reports in eventRateSchemeNames; its peril,
+# 739 is the one analysis 101 reports in eventRateSchemeNames; its peril,
 # model region and model version are invented.
 EVENT_RATE_SCHEME_ROWS = [
     {
@@ -415,9 +420,9 @@ def test_own_dlm_reports_every_region_row_and_names_its_scheme():
     """Keep all 23 windstorm region rows and name event-rate scheme 739."""
     manager, _ = make_manager(OWN_DLM_DETAIL, rows(OWN_DLM_REGION_ROW))
 
-    description = manager.describe_run(5741781)
+    description = manager.describe_run(101)
 
-    assert description.analysis_id == 5741781
+    assert description.analysis_id == 101
     assert description.is_group is False
     assert len(description.regions) == 23
     assert {region.event_rate_scheme_id for region in description.regions} == {739}
@@ -437,10 +442,10 @@ def test_own_dlm_reports_its_treaty_with_the_name_grouping_drops():
         OWN_DLM_DETAIL, rows(OWN_DLM_REGION_ROW), OWN_DLM_TREATIES
     )
 
-    treaties = manager.describe_run(5741781).treaties
+    treaties = manager.describe_run(101).treaties
 
     assert len(treaties) == 1
-    assert treaties[0].treaty_id == 33833
+    assert treaties[0].treaty_id == 21
     assert treaties[0].treaty_number == "PR1"
     assert treaties[0].treaty_name == "PR1"
     assert treaties[0].terms["occurrenceLimit"] == 1000000.0
@@ -450,7 +455,7 @@ def test_own_hd_names_the_pet_row_for_the_resolved_model_version():
     """Name PET 12 from the 3.0 row, not the 2.0 row with the same ID."""
     manager, reference_data = make_manager(OWN_HD_DETAIL, [OWN_HD_REGION_ROW])
 
-    description = manager.describe_run(5733173)
+    description = manager.describe_run(102)
 
     assert len(description.regions) == 1
     region = description.regions[0]
@@ -474,7 +479,7 @@ def test_unnamed_pet_id_keeps_the_id_and_periods(unnamed):
     )
     reference_data.pet_metadata_returns_none = unnamed == "no row returned"
 
-    region = manager.describe_run(5733173).regions[0]
+    region = manager.describe_run(102).regions[0]
 
     assert region.pet_name is None
     assert region.pet_id == pet_id
@@ -487,12 +492,12 @@ def test_broker_dlm_reports_both_treaty_names_and_terms():
         BROKER_DLM_DETAIL, rows(BROKER_DLM_REGION_ROW), BROKER_DLM_TREATIES
     )
 
-    description = manager.describe_run(5689560)
+    description = manager.describe_run(103)
 
     assert [treaty.treaty_name for treaty in description.treaties] == [
         "XPR_1_100_Fld", "XPR_1_95_Fld"
     ]
-    assert [treaty.treaty_id for treaty in description.treaties] == [31482, 31481]
+    assert [treaty.treaty_id for treaty in description.treaties] == [22, 23]
     assert [treaty.treaty_number for treaty in description.treaties] == [
         "XPR_1_100_Fld", "XPR_1_95_Fld"
     ]
@@ -508,7 +513,7 @@ def test_broker_dlm_omits_an_event_rate_scheme_no_active_row_names():
     """Keep scheme 577 on every region row and leave it out of the names."""
     manager, _ = make_manager(BROKER_DLM_DETAIL, rows(BROKER_DLM_REGION_ROW))
 
-    description = manager.describe_run(5689560)
+    description = manager.describe_run(103)
 
     assert {region.event_rate_scheme_id for region in description.regions} == {577}
     assert description.event_rate_scheme_names == {}
@@ -518,7 +523,7 @@ def test_broker_group_properties_report_a_group():
     """Read INGP as a group even though the detail reports isGroup false."""
     manager, _ = make_manager(BROKER_GROUP_DETAIL, [BROKER_GROUP_REGION_ROW])
 
-    assert manager.describe_run(5723350).is_group is True
+    assert manager.describe_run(104).is_group is True
 
 
 def test_is_group_flag_reports_a_group():
@@ -526,7 +531,7 @@ def test_is_group_flag_reports_a_group():
     detail = dict(OWN_DLM_DETAIL, isGroup=True)
     manager, _ = make_manager(detail, rows(OWN_DLM_REGION_ROW))
 
-    assert manager.describe_run(5741781).is_group is True
+    assert manager.describe_run(101).is_group is True
 
 
 def test_missing_analysis_raises():
@@ -534,15 +539,15 @@ def test_missing_analysis_raises():
     client = FakeClient([IRPAPIError("404 Client Error: Not Found")])
     irp = SimpleNamespace(client=client, reference_data=FakeReferenceDataManager())
 
-    with pytest.raises(IRPAPIError, match="5741781"):
-        AnalysisManager(irp).describe_run(5741781)
+    with pytest.raises(IRPAPIError, match="101"):
+        AnalysisManager(irp).describe_run(101)
 
 
 def test_empty_region_list_describes_no_regions():
     """Describe an analysis with no region rows without raising."""
     manager, _ = make_manager(OWN_DLM_DETAIL, [], OWN_DLM_TREATIES)
 
-    description = manager.describe_run(5741781)
+    description = manager.describe_run(101)
 
     assert description.regions == ()
     assert description.event_rate_scheme_names == {}
