@@ -384,6 +384,37 @@ def _is_group(analysis: Mapping[str, Any]) -> bool:
     return engine in {"GROUP", "CEPGROUP"} or group in {"CDGP", "INGP", "MCGP"}
 
 
+def _unambiguous_model_regions(
+    rows: Sequence[Mapping[str, Any]], id_field: str
+) -> Dict[int, str]:
+    """Map each reference row ID to its ``modelRegionCode``.
+
+    An ID whose rows carry more than one ``modelRegionCode`` is left out: PET
+    IDs repeat across model versions, so the same ``id`` appears more than once.
+
+    Args:
+        rows: Reference rows carrying ``modelRegionCode``
+        id_field: Field naming the ID to key on, ``eventRateSchemeId`` or ``id``
+
+    Returns:
+        The model region code per ID, excluding IDs whose rows disagree
+    """
+    codes: Dict[int, Set[str]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        row_id = row.get(id_field)
+        code = _text(row.get("modelRegionCode"))
+        if not _positive_int(row_id) or code is None:
+            continue
+        codes.setdefault(int(row_id), set()).add(code)
+    return {
+        row_id: next(iter(values))
+        for row_id, values in codes.items()
+        if len(values) == 1
+    }
+
+
 def _event_rate_from_analysis(analysis: Mapping[str, Any]) -> Tuple[Optional[int], Optional[str]]:
     direct = _field(analysis, "eventRateSchemeId", "rateSchemeId")
     label = _text(_field(analysis, "eventRateSchemeName", "rateSchemeName"))
@@ -449,6 +480,8 @@ class _ReferenceLookups:
             Tuple[Optional[Dict[str, Any]], Optional[Exception]],
         ] = {}
         self._scheme_rows: Optional[Tuple[Mapping[str, Any], ...]] = None
+        self._scheme_model_regions: Optional[Dict[int, str]] = None
+        self._pet_model_regions: Optional[Dict[int, str]] = None
 
     def model_version(
         self, engine: str, region: str, peril: str
@@ -554,6 +587,65 @@ class _ReferenceLookups:
                 return _text(row.get("eventRateSchemeName"))
         return None
 
+    def peril_code_for_row(
+        self, raw_region: Mapping[str, Any], region_code: Optional[str]
+    ) -> Optional[str]:
+        """Return the peril code one region row's IDs resolve to.
+
+        A region row names its peril in ``peril`` as a display name such as
+        ``"Windstorm"``, and a multi-peril group's detail carries ``perilCode``
+        ``YY`` with ``peril`` ``"Multi-Peril"``, so neither the row nor the
+        detail states the row's peril code. The row's ``eventRateSchemeId`` and
+        ``petId`` each carry a ``modelRegionCode`` in their reference table, and
+        ``modelRegionCode`` is a region code followed by a peril code — the same
+        key ``get_model_version_by_engine_region_peril`` builds from its
+        ``region_code`` and ``peril_code`` arguments. Stripping ``region_code``
+        off the front of it leaves the peril.
+
+        A reference row's own ``perilCode`` is a different value and is not
+        read: the ``PETMetadata``, ``modelprofiles`` and
+        ``SoftwareModelVersionMap`` rows for ``modelRegionCode`` ``NAWF`` all
+        carry ``perilCode`` ``FR``, and ``NA`` followed by ``FR`` matches no
+        ``modelRegionCode``.
+
+        Args:
+            raw_region: One region row from ``AnalysisManager.get_regions``
+            region_code: The region code already resolved for that row
+
+        Returns:
+            The peril code, or None when no ID resolves a ``modelRegionCode``
+            starting with ``region_code``
+        """
+        if not region_code:
+            return None
+        model_region = self._model_region_for_row(raw_region)
+        if model_region is None or len(model_region) <= len(region_code):
+            return None
+        if not model_region.upper().startswith(region_code.upper()):
+            return None
+        return model_region[len(region_code):]
+
+    def _model_region_for_row(self, raw_region: Mapping[str, Any]) -> Optional[str]:
+        """Return the model region code one region row's scheme or PET ID names."""
+        scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
+        if _positive_int(scheme):
+            if self._scheme_model_regions is None:
+                self._scheme_model_regions = _unambiguous_model_regions(
+                    self.event_rate_scheme_rows(), "eventRateSchemeId"
+                )
+            model_region = self._scheme_model_regions.get(int(scheme))
+            if model_region is not None:
+                return model_region
+
+        pet = _field(raw_region, "petId", "simulationSetId")
+        if _positive_int(pet):
+            if self._pet_model_regions is None:
+                self._pet_model_regions = _unambiguous_model_regions(
+                    self._irp.reference_data.get_all_pet_metadata(), "id"
+                )
+            return self._pet_model_regions.get(int(pet))
+        return None
+
 
 def _region_facts(
     analysis_id: int,
@@ -564,9 +656,11 @@ def _region_facts(
 ) -> Tuple[List[GroupingRegionFact], Set[str]]:
     """Normalize the region rows of one analysis.
 
-    A region row carries the peril as a display name, so ``perilCode`` and
-    ``regionCode`` from the analysis detail supply the codes. A row without an
-    ELT or PLT classification, without engine, peril, or region metadata, or
+    A region row carries the peril as a display name, so the region code is
+    resolved first and ``_ReferenceLookups.peril_code_for_row`` then reads the
+    peril off the ``modelRegionCode`` the row's ``eventRateSchemeId`` or
+    ``petId`` names; the detail's ``perilCode`` is the fallback. A row without
+    an ELT or PLT classification, without engine, peril, or region metadata, or
     whose model version does not resolve exactly is reported and dropped.
 
     Args:
@@ -609,15 +703,15 @@ def _region_facts(
             continue
         observed_frameworks.add(framework)
         row_engine = _text(_field(raw_region, "engineVersion", "softwareVersionCode"))
-        row_peril = _resolve_code(
-            _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
-        )
         row_region = _resolve_code(
             _field(raw_region, "regionCode", "region"), detail_region, detail_region_name
         )
+        region = row_region or detail_region
+        row_peril = lookups.peril_code_for_row(raw_region, region) or _resolve_code(
+            _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
+        )
         engine = row_engine or detail_engine
         peril = row_peril or detail_peril
-        region = row_region or detail_region
         sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
         apply_contract = bool(_field(raw_region, "applyContractFlag"))
         scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")

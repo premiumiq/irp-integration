@@ -279,9 +279,124 @@ BROKER_GROUP_REGION_ROW = dict(
     engineVersion="RL25",
 )
 
-# Three of the 151 active event-rate scheme rows, plus scheme 739. The name of
-# 739 is the one analysis 101 reports in eventRateSchemeNames; its peril,
-# model region and model version are invented.
+# Analysis 105, a multi-peril group. The detail carries perilCode YY and peril
+# "Multi-Peril" while its region rows carry "Earthquake" and "Windstorm". The
+# Peril reference table lists YY as RMS ALL PERILS with isActive false, so YY is
+# never in SoftwareModelVersionMap and neither the row nor the detail states the
+# row's peril code: it comes from the row's eventRateSchemeId or petId.
+MULTI_PERIL_GROUP_DETAIL = {
+    "analysisId": 105,
+    "analysisName": "example_multi_peril_group",
+    "engineType": "Group",
+    "engineVersion": "RL25",
+    "analysisFramework": "ELT",
+    "analysisType": "Exceedance Probability",
+    "isGroup": False,
+    "groupType": "CDGP",
+    "peril": "Multi-Peril",
+    "perilCode": "YY",
+    "region": "North Atlantic (including Hawaii)",
+    "regionCode": "NA",
+    "eventRateSchemeNames": [],
+    "simulationSetId": 0,
+    "simulationPeriods": 0,
+    "additionalProperties": [
+        {"key": "propagateDetailedOutput", "properties": [
+            {"id": 0, "name": "", "value": "Yes"}
+        ]},
+    ],
+}
+
+MULTI_PERIL_GROUP_REGION_ROWS = [
+    {
+        "region": "NA",
+        "subRegion": "FL",
+        "peril": "Windstorm",
+        "eventRateSchemeId": 739,
+        "framework": "ELT",
+        "analysisId": 105,
+        "modelProfileId": 5250,
+        "petId": 0,
+        "numSamples": 0,
+        "periods": 0,
+        "applyContractFlag": False,
+        "engineVersion": "RL25",
+    },
+    {
+        "region": "NA",
+        "subRegion": "CA",
+        "peril": "Earthquake",
+        "eventRateSchemeId": 740,
+        "framework": "ELT",
+        "analysisId": 105,
+        "modelProfileId": 5251,
+        "petId": 0,
+        "numSamples": 0,
+        "periods": 0,
+        "applyContractFlag": False,
+        "engineVersion": "RL25",
+    },
+]
+
+# One PLT row of the same group: eventRateSchemeId is 0, so the row's peril code
+# comes from PET ID 12 rather than from an event-rate scheme.
+MULTI_PERIL_PLT_REGION_ROW = {
+    "region": "NZ",
+    "subRegion": "NZ",
+    "peril": "Earthquake",
+    "eventRateSchemeId": 0,
+    "framework": "PLT",
+    "analysisId": 105,
+    "modelProfileId": 5328,
+    "petId": 12,
+    "numSamples": 1,
+    "periods": 1978459,
+    "applyContractFlag": False,
+    "engineVersion": "HDv3.0",
+}
+
+# Analysis 106, an HDv2.0 PLT wildfire analysis. The PETMetadata row for PET 50
+# carries modelRegionCode NAWF and perilCode FR, and SoftwareModelVersionMap
+# keys on modelRegionCode: NA followed by FR matches no mapping, NA followed by
+# WF matches the HDv2.0 row.
+WILDFIRE_DETAIL = {
+    "analysisId": 106,
+    "analysisName": "example_wf_analysis",
+    "exposureName": "example_edm",
+    "engineType": "HD",
+    "engineVersion": "HDv2.0",
+    "analysisFramework": "PLT",
+    "analysisType": "Exceedance Probability",
+    "analysisMode": "Simulated",
+    "isGroup": False,
+    "peril": "Wildfire",
+    "perilCode": "WF",
+    "region": "North America",
+    "regionCode": "NA",
+    "eventRateSchemeNames": [],
+    "simulationSetId": 0,
+    "simulationPeriods": 0,
+    "modelProfile": {"id": 4526, "code": "", "name": "example_wf_model_profile"},
+}
+
+WILDFIRE_REGION_ROW = {
+    "region": "NA",
+    "subRegion": "N2",
+    "peril": "Wildfire",
+    "eventRateSchemeId": 0,
+    "framework": "PLT",
+    "analysisId": 106,
+    "modelProfileId": 4526,
+    "petId": 50,
+    "numSamples": 1,
+    "periods": 100000,
+    "applyContractFlag": False,
+    "engineVersion": "HDv2.0",
+}
+
+# Three of the 151 active event-rate scheme rows, plus schemes 739 and 740. The
+# name of 739 is the one analysis 101 reports in eventRateSchemeNames; the
+# peril, model region and model version of 739 and 740 are invented.
 EVENT_RATE_SCHEME_ROWS = [
     {
         "eventRateSchemeId": 139,
@@ -315,13 +430,24 @@ EVENT_RATE_SCHEME_ROWS = [
         "eventRateSchemeName": "RMS 2025 Stochastic Event Rates",
         "isActive": True,
     },
+    {
+        "eventRateSchemeId": 740,
+        "perilCode": "EQ",
+        "modelRegionCode": "NAEQ",
+        "modelVersionCode": "17.0",
+        "eventRateSchemeName": "RMS 2025 Time-Independent Rates",
+        "isActive": True,
+    },
 ]
 
-# PET ID 12 exists for model version 2.0 and 3.0 with a different petName.
+# PET ID 12 exists for model version 2.0 and 3.0 with a different petName. Both
+# rows carry modelRegionCode NZEQ, so the PET ID resolves a model region even
+# though it does not resolve a single row.
 PET_METADATA_ROWS = [
     {
         "id": 12,
         "petName": "RMS 2020 Time-Dependent Rates",
+        "perilCode": "EQ",
         "modelRegionCode": "NZEQ",
         "modelVersionCode": "3.0",
         "numberOfPeriods": 1978459,
@@ -330,19 +456,34 @@ PET_METADATA_ROWS = [
     {
         "id": 12,
         "petName": "RMS V2.0 Time-Dependent Rates",
+        "perilCode": "EQ",
         "modelRegionCode": "NZEQ",
         "modelVersionCode": "2.0",
         "numberOfPeriods": 1978459,
         "maxNumberOfSamples": 256,
     },
+    {
+        "id": 50,
+        "petName": "RMS V2.0 Stochastic Rates - CatLoss US (Default)",
+        "perilCode": "FR",
+        "modelRegionCode": "NAWF",
+        "modelVersionCode": "2.0",
+        "numberOfPeriods": 100000,
+        "maxNumberOfSamples": 512,
+    },
 ]
 
-# HDv3.0/NZ/EQ is captured. The two RL model versions are invented: the capture
-# did not read a North Atlantic windstorm mapping.
+# HDv3.0/NZ/EQ and HDv2.0/NAWF are captured. The three RL model versions are
+# invented: the capture did not read a North Atlantic windstorm or North America
+# earthquake mapping. Keying on ``(engine, region, peril)`` here mirrors
+# ``get_model_version_by_engine_region_peril``, which matches
+# ``region_code + peril_code`` against ``modelRegionCode``.
 MODEL_VERSIONS = {
     ("HDv3.0", "NZ", "EQ"): "3.0",
     ("RL25", "NA", "WS"): "11.0",
     ("RL23", "NA", "WS"): "11.0",
+    ("RL25", "NA", "EQ"): "17.0",
+    ("HDv2.0", "NA", "WF"): "2.0",
 }
 
 
@@ -370,6 +511,10 @@ class FakeReferenceDataManager:
         if key not in MODEL_VERSIONS:
             raise IRPAPIError(f"No model version mapping found for {key}")
         return MODEL_VERSIONS[key]
+
+    def get_all_pet_metadata(self) -> List[Dict[str, Any]]:
+        """Return every PET metadata row."""
+        return list(self.pet_metadata)
 
     def get_pet_metadata_exact(self, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """Return the one PET row matching every qualifier."""
@@ -417,6 +562,12 @@ def make_manager(detail, regions, treaties=()):
 def rows(row, sub_regions=NA_WS_SUB_REGIONS):
     """Return one region row per sub-region code."""
     return [dict(row, subRegion=code) for code in sub_regions]
+
+
+def problem_message(description):
+    """Return the message of the one problem a description reports."""
+    assert len(description.problems) == 1
+    return description.problems[0].message
 
 
 def test_own_dlm_reports_every_region_row_and_names_its_scheme():
@@ -565,6 +716,84 @@ def test_empty_region_list_describes_no_regions():
     assert description.problems == ()
     assert description.event_rate_scheme_names == {}
     assert len(description.treaties) == 1
+
+
+def test_multi_peril_group_resolves_each_row_peril_from_its_scheme():
+    """Keep both rows of a perilCode YY group: WS and EQ come from the scheme IDs."""
+    manager, _ = make_manager(MULTI_PERIL_GROUP_DETAIL, MULTI_PERIL_GROUP_REGION_ROWS)
+
+    description = manager.describe_run(105)
+
+    assert description.is_group is True
+    assert description.problems == ()
+    assert [region.peril_code for region in description.regions] == ["WS", "EQ"]
+    assert [region.model_version for region in description.regions] == ["11.0", "17.0"]
+    assert [region.model_region_code for region in description.regions] == ["FLWS", "CAEQ"]
+    assert {region.region_code for region in description.regions} == {"NA"}
+    assert description.event_rate_scheme_names == {
+        739: "RMS 2025 Stochastic Event Rates",
+        740: "RMS 2025 Time-Independent Rates",
+    }
+
+
+def test_multi_peril_plt_row_resolves_its_peril_from_the_pet_id():
+    """Resolve EQ from PET ID 12 on a row carrying eventRateSchemeId 0."""
+    manager, _ = make_manager(MULTI_PERIL_GROUP_DETAIL, [MULTI_PERIL_PLT_REGION_ROW])
+
+    description = manager.describe_run(105)
+
+    assert description.problems == ()
+    assert len(description.regions) == 1
+    region = description.regions[0]
+    assert region.framework == "PLT"
+    assert region.peril_code == "EQ"
+    assert region.region_code == "NZ"
+    assert region.model_version == "3.0"
+    assert region.pet_id == 12
+    assert region.pet_name == "RMS 2020 Time-Dependent Rates"
+
+
+def test_row_resolving_to_no_peril_code_is_dropped_and_reported():
+    """Report the dropped row instead of losing it: YY resolves no model version."""
+    unresolved = dict(
+        MULTI_PERIL_GROUP_REGION_ROWS[0],
+        subRegion="D1",
+        peril="Unknown",
+        eventRateSchemeId=0,
+        petId=0,
+    )
+    manager, _ = make_manager(
+        MULTI_PERIL_GROUP_DETAIL, MULTI_PERIL_GROUP_REGION_ROWS + [unresolved]
+    )
+
+    description = manager.describe_run(105)
+
+    assert [region.sub_region for region in description.regions] == ["FL", "CA"]
+    assert [problem.code for problem in description.problems] == [
+        "model_version_mapping_missing"
+    ]
+    assert problem_message(description) == (
+        "Model version for analysis 105, engine RL25, region NA, and peril "
+        "Unknown was not resolved exactly."
+    )
+
+
+def test_wildfire_pet_resolves_wf_and_not_the_pet_row_peril_code():
+    """Read WF off modelRegionCode NAWF: PET 50's own perilCode is FR, and NA
+    followed by FR matches no SoftwareModelVersionMap row."""
+    manager, _ = make_manager(WILDFIRE_DETAIL, [WILDFIRE_REGION_ROW])
+
+    description = manager.describe_run(106)
+
+    assert description.problems == ()
+    assert len(description.regions) == 1
+    region = description.regions[0]
+    assert region.peril_code == "WF"
+    assert region.region_code == "NA"
+    assert region.model_region_code == "N2WF"
+    assert region.model_version == "2.0"
+    assert region.pet_id == 50
+    assert region.pet_name == "RMS V2.0 Stochastic Rates - CatLoss US (Default)"
 
 
 def test_empty_analysis_detail_raises():
