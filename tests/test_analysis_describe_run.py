@@ -357,7 +357,10 @@ class FakeReferenceDataManager:
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
         """Return the active scheme rows in the Platform's envelope."""
-        return {"items": list(self.event_rate_schemes)}
+        return {
+            "items": list(self.event_rate_schemes),
+            "totalCount": len(self.event_rate_schemes),
+        }
 
     def get_model_version_by_engine_region_peril(
         self, engine_version: str, region_code: str, peril_code: str

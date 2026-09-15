@@ -157,6 +157,7 @@ class FakeReferenceDataManager:
             {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
              "petName": NON_TYPHOON_PET_NAME},
         ]
+        self.event_rate_scheme_total: Optional[int] = None
         self.pet_metadata_error: Optional[IRPAPIError] = None
         self.pet_metadata_calls: List[Dict[str, Any]] = []
         self.simulation_sets = [
@@ -174,8 +175,16 @@ class FakeReferenceDataManager:
         self.model_version_error: Optional[IRPAPIError] = None
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
-        """Return the fixture scheme list in the Platform's envelope."""
-        return {"items": self.event_rate_schemes}
+        """Return the fixture scheme list in the Platform's envelope.
+
+        ``totalCount`` reports the row count unless a test overrides it with
+        ``event_rate_scheme_total`` to stand in for a server-side cap.
+        """
+        total = self.event_rate_scheme_total
+        return {
+            "items": self.event_rate_schemes,
+            "totalCount": len(self.event_rate_schemes) if total is None else total,
+        }
 
     def get_model_version_by_engine_region_peril(
         self, engine_version: str, region_code: str, peril_code: str
@@ -749,6 +758,19 @@ def test_display_name_region_rows_resolve_to_the_detail_codes():
         (option.event_rate_scheme_id, option.label)
         for option in result.partitions[0].event_rate_scheme_options
     ] == [(101, "Historical"), (102, "Stochastic")]
+
+
+def test_truncated_event_rate_scheme_read_raises():
+    """Raise when the reference read returns fewer rows than its totalCount.
+
+    The endpoint applies no default page size today, so a short list means the
+    server capped the read and the peril and model-region comparisons would be
+    made against part of the table."""
+    manager, _, reference = make_manager(*pure_elt_fixtures())
+    reference.event_rate_scheme_total = len(reference.event_rate_schemes) + 1
+
+    with pytest.raises(IRPAPIError, match=r"Event-rate scheme search returned \d+ of \d+ rows"):
+        manager.inspect(analysis_ids=[1, 2])
 
 
 def test_each_offered_scheme_is_named_from_reference_data():

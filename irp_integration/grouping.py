@@ -510,21 +510,37 @@ class _ReferenceLookups:
         Event-rate applicability and CCM simulation-set exclusion both use
         fields from the same active reference response.
 
+        The endpoint applies no default page size, so one call returns every
+        active row. ``totalCount`` is checked against the rows returned rather
+        than paginated over, so a server-side cap raises instead of silently
+        truncating the peril and model-region comparisons.
+
         Returns:
             Every active event-rate scheme row
 
         Raises:
-            IRPAPIError: If the reference read returns a non-list response
+            IRPAPIError: If the reference read returns a non-list response, or
+                fewer rows than its ``totalCount`` reports
         """
         if self._scheme_rows is None:
             payload = self._irp.reference_data.get_event_rate_schemes()
-            rows = payload.get("items") if isinstance(payload, Mapping) else payload
+            envelope: Mapping[str, Any] = {}
+            rows: Any = payload
+            if isinstance(payload, Mapping):
+                envelope = payload
+                rows = payload.get("items")
             if (
                 isinstance(rows, (str, bytes))
                 or not isinstance(rows, Sequence)
             ):
                 raise IRPAPIError(
                     "Event-rate scheme search returned a non-list response"
+                )
+            total = envelope.get("totalCount")
+            if _positive_int(total) and len(rows) < total:
+                raise IRPAPIError(
+                    f"Event-rate scheme search returned {len(rows)} of "
+                    f"{total} rows"
                 )
             self._scheme_rows = tuple(
                 row for row in rows if isinstance(row, Mapping)
