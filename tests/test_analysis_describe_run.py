@@ -83,8 +83,8 @@ NA_WS_SUB_REGIONS = (
 OWN_DLM_TREATIES = [
     {
         "treatyId": 21,
-        "treatyNumber": "PR1",
-        "treatyName": "PR1",
+        "treatyNumber": "example_treaty_1",
+        "treatyName": "Example Working Layer",
         "treatyType": "WORK",
         "currency": {"id": 0, "code": "USD", "name": "US Dollar"},
         "attachmentBasis": "L",
@@ -196,8 +196,8 @@ BROKER_DLM_REGION_ROW = {
 BROKER_DLM_TREATIES = [
     {
         "treatyId": 22,
-        "treatyNumber": "XPR_1_100_Fld",
-        "treatyName": "XPR_1_100_Fld",
+        "treatyNumber": "example_treaty_2",
+        "treatyName": "Example Excess Layer 100",
         "treatyType": "WORK",
         "currency": {"id": 0, "code": "USD", "name": "US Dollar"},
         "attachmentBasis": "L",
@@ -216,8 +216,8 @@ BROKER_DLM_TREATIES = [
     },
     {
         "treatyId": 23,
-        "treatyNumber": "XPR_1_95_Fld",
-        "treatyName": "XPR_1_95_Fld",
+        "treatyNumber": "example_treaty_3",
+        "treatyName": "Example Excess Layer 95",
         "treatyType": "WORK",
         "currency": {"id": 0, "code": "USD", "name": "US Dollar"},
         "attachmentBasis": "L",
@@ -601,8 +601,8 @@ def test_own_dlm_reports_its_treaty_with_the_name_grouping_drops():
 
     assert len(treaties) == 1
     assert treaties[0].treaty_id == 21
-    assert treaties[0].treaty_number == "PR1"
-    assert treaties[0].treaty_name == "PR1"
+    assert treaties[0].treaty_number == "example_treaty_1"
+    assert treaties[0].treaty_name == "Example Working Layer"
     assert treaties[0].terms["occurrenceLimit"] == 1000000.0
 
 
@@ -650,11 +650,11 @@ def test_broker_dlm_reports_both_treaty_names_and_terms():
     description = manager.describe_run(103)
 
     assert [treaty.treaty_name for treaty in description.treaties] == [
-        "XPR_1_100_Fld", "XPR_1_95_Fld"
+        "Example Excess Layer 100", "Example Excess Layer 95"
     ]
     assert [treaty.treaty_id for treaty in description.treaties] == [22, 23]
     assert [treaty.treaty_number for treaty in description.treaties] == [
-        "XPR_1_100_Fld", "XPR_1_95_Fld"
+        "example_treaty_2", "example_treaty_3"
     ]
     placed = description.treaties[1].terms
     assert placed["currency"] == "USD"
