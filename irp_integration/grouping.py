@@ -58,6 +58,12 @@ class GroupingProblemCode(str, Enum):
     all come from DLM analyses, ``modelVersionCode``. The partition then has no
     option to offer, so the problem is returned in ``blocking_problems`` and
     ``submit`` refuses the group.
+
+    ``TREATY_NUMBER_MISSING`` reports one treaty carrying no
+    ``treatyNumber``. Only ``AnalysisManager.describe_run`` returns it:
+    ``inspect`` keys treaties by ``treatyNumber`` to compare them across
+    members, so an unnumbered treaty makes the grouping decision unsafe and
+    raises ``IRPAPIError`` there instead.
     """
 
     INSPECTION_CHANGED = "inspection_changed"
@@ -89,6 +95,7 @@ class GroupingProblemCode(str, Enum):
     APPLY_CONTRACT_FLAG_UNSUPPORTED = "apply_contract_flag_unsupported"
     SIMULATION_SET_MAPPING_MISSING = "simulation_set_mapping_missing"
     INCONSISTENT_TREATY_TERMS = "inconsistent_treaty_terms"
+    TREATY_NUMBER_MISSING = "treaty_number_missing"
 
 
 @dataclass(frozen=True)

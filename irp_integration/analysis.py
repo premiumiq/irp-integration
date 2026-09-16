@@ -26,6 +26,7 @@ from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPVali
 from .grouping import (
     GroupingManager,
     GroupingProblem,
+    GroupingProblemCode,
     GroupingRegionFact,
     _is_group,
     _positive_int,
@@ -54,10 +55,17 @@ class AppliedTreaty:
     ``GroupingManager`` normalizes them for its treaty comparison: what the
     analysis ran with, not the EDM treaty definition. An analysis run in CAD
     against a treaty defined in USD reports CAD.
+
+    ``treaty_number`` is None for a treaty carrying no ``treatyNumber``. The
+    treaty is still reported, and ``RunDescription.problems`` carries a
+    ``treaty_number_missing`` problem naming its ``treatyId``.
+
+    ``terms`` is a ``Dict``, so ``AppliedTreaty`` is not hashable despite
+    ``frozen=True``, and its contents stay mutable.
     """
 
     treaty_id: Optional[int]
-    treaty_number: str
+    treaty_number: Optional[str]
     treaty_name: Optional[str]
     terms: Dict[str, Any]
 
@@ -1056,7 +1064,10 @@ class AnalysisManager:
 
         A region row that does not normalize is reported in ``problems``
         rather than raised on: one unresolved sub-region does not make the rest
-        of an otherwise readable analysis unavailable.
+        of an otherwise readable analysis unavailable. A treaty carrying no
+        ``treatyNumber`` is reported the same way, as a
+        ``treaty_number_missing`` problem naming its ``treatyId``, and is
+        returned in ``treaties`` with ``treaty_number`` None.
 
         Args:
             analysis_id: Analysis ID
@@ -1070,7 +1081,7 @@ class AnalysisManager:
             IRPValidationError: If analysis_id is invalid
             IRPAPIError: If the analysis, region, treaty, or reference-data read
                 fails, if the analysis detail is empty or is not an object, or
-                if the region search returns a non-list response
+                if the region or treaty search returns a non-list response
         """
         validate_positive_int(analysis_id, "analysis_id")
 
@@ -1098,20 +1109,30 @@ class AnalysisManager:
             if name is not None:
                 scheme_names[scheme_id] = name
 
+        raw_treaties = self.search_analysis_treaties_paginated(analysis_id)
+        if not isinstance(raw_treaties, list):
+            raise IRPAPIError(
+                f"Treaty search for analysis ID {analysis_id} returned a non-list response"
+            )
         treaties: List[AppliedTreaty] = []
-        for treaty in self.search_analysis_treaties_paginated(analysis_id):
+        for treaty in raw_treaties:
             if not isinstance(treaty, Mapping):
                 raise IRPAPIError(
                     f"Treaty search for analysis ID {analysis_id} returned a malformed treaty"
                 )
+            treaty_value = treaty.get("treatyId")
+            treaty_id = int(treaty_value) if _positive_int(treaty_value) else None
             treaty_number = _text(treaty.get("treatyNumber"))
             if treaty_number is None:
-                raise IRPAPIError(
-                    f"Treaty for analysis ID {analysis_id} has no Treaty Number"
-                )
-            treaty_id = treaty.get("treatyId")
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.TREATY_NUMBER_MISSING.value,
+                    message=(f"Treaty for analysis ID {analysis_id} has no "
+                             "Treaty Number."),
+                    analysis_ids=(analysis_id,),
+                    treaty_ids=(treaty_id,) if treaty_id is not None else (),
+                ))
             treaties.append(AppliedTreaty(
-                treaty_id=int(treaty_id) if _positive_int(treaty_id) else None,
+                treaty_id=treaty_id,
                 treaty_number=treaty_number,
                 treaty_name=_text(treaty.get("treatyName")),
                 terms=GroupingManager._loss_affecting_treaty_terms(treaty),

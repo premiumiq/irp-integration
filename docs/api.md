@@ -1725,13 +1725,17 @@ One treaty as applied to one analysis, with the name Risk Modeler shows.
 
 ``terms`` are the analysis-level loss-affecting values, normalized the way ``GroupingManager`` normalizes them for its treaty comparison: what the analysis ran with, not the EDM treaty definition. An analysis run in CAD against a treaty defined in USD reports CAD.
 
+``treaty_number`` is None for a treaty carrying no ``treatyNumber``. The treaty is still reported, and ``RunDescription.problems`` carries a ``treaty_number_missing`` problem naming its ``treatyId``.
+
+``terms`` is a ``Dict``, so ``AppliedTreaty`` is not hashable despite ``frozen=True``, and its contents stay mutable.
+
 #### `__init__`
 
 ```python
 def __init__(
     self,
     treaty_id: Optional[int],
-    treaty_number: str,
+    treaty_number: Optional[str],
     treaty_name: Optional[str],
     terms: Dict[str, Any]
 )
@@ -2295,7 +2299,10 @@ reports ``pet_name`` None.
 
 A region row that does not normalize is reported in ``problems``
 rather than raised on: one unresolved sub-region does not make the rest
-of an otherwise readable analysis unavailable.
+of an otherwise readable analysis unavailable. A treaty carrying no
+``treatyNumber`` is reported the same way, as a
+``treaty_number_missing`` problem naming its ``treatyId``, and is
+returned in ``treaties`` with ``treaty_number`` None.
 
 **Arguments:**
  - **analysis_id:**  Analysis ID
@@ -2309,7 +2316,7 @@ of an otherwise readable analysis unavailable.
  - **IRPValidationError:**  If analysis_id is invalid
  - **IRPAPIError:**  If the analysis, region, treaty, or reference-data read
    fails, if the analysis detail is empty or is not an object, or
-   if the region search returns a non-list response
+   if the region or treaty search returns a non-list response
 
 #### `submit_analysis_export_job`
 
@@ -2590,6 +2597,8 @@ def __init__(
 Stable codes returned for rule-based grouping problems.
 
 ``EVENT_RATE_SCHEME_MISSING`` reports one ELT region that carries no positive ``eventRateSchemeId``. ``EVENT_RATE_SCHEME_MAPPING_MISSING`` reports a partition whose members disagree on their event-rate scheme and for which no active reference row carries the partition's ``perilCode``, ``modelRegionCode``, and, when the partition's ELT regions all come from DLM analyses, ``modelVersionCode``. The partition then has no option to offer, so the problem is returned in ``blocking_problems`` and ``submit`` refuses the group.
+
+``TREATY_NUMBER_MISSING`` reports one treaty carrying no ``treatyNumber``. Only ``AnalysisManager.describe_run`` returns it: ``inspect`` keys treaties by ``treatyNumber`` to compare them across members, so an unnumbered treaty makes the grouping decision unsafe and raises ``IRPAPIError`` there instead.
 
 ### `class GroupingRegionFact`
 

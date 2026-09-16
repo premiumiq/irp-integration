@@ -815,3 +815,58 @@ def test_non_list_region_response_raises():
 
     with pytest.raises(IRPAPIError, match="returned a non-list response"):
         AnalysisManager(irp).describe_run(101)
+
+
+def test_non_list_treaty_response_raises():
+    """Raise IRPAPIError rather than reading an envelope's keys as treaties."""
+    client = FakeClient([
+        FakeResponse(200, OWN_DLM_DETAIL),
+        FakeResponse(200, rows(OWN_DLM_REGION_ROW)),
+        FakeResponse(200, {"items": list(OWN_DLM_TREATIES), "totalCount": 1}),
+    ])
+    irp = SimpleNamespace(client=client, reference_data=FakeReferenceDataManager())
+
+    with pytest.raises(
+        IRPAPIError,
+        match="Treaty search for analysis ID 101 returned a non-list response",
+    ):
+        AnalysisManager(irp).describe_run(101)
+
+
+@pytest.mark.parametrize("unnumbered", ["absent", "empty"])
+def test_treaty_without_a_treaty_number_is_reported_and_kept(unnumbered):
+    """Report treaty_number_missing and describe the rest of the run anyway."""
+    first = dict(OWN_DLM_TREATIES[0])
+    if unnumbered == "absent":
+        del first["treatyNumber"]
+    else:
+        first["treatyNumber"] = ""
+    second = dict(
+        OWN_DLM_TREATIES[0],
+        treatyId=24,
+        treatyNumber="example_treaty_4",
+        treatyName="Example Second Working Layer",
+    )
+    manager, _ = make_manager(
+        OWN_DLM_DETAIL, rows(OWN_DLM_REGION_ROW), [first, second]
+    )
+
+    description = manager.describe_run(101)
+
+    assert [treaty.treaty_number for treaty in description.treaties] == [
+        None, "example_treaty_4"
+    ]
+    assert [treaty.treaty_id for treaty in description.treaties] == [21, 24]
+    assert description.treaties[0].treaty_name == "Example Working Layer"
+    assert description.treaties[0].terms["occurrenceLimit"] == 1000000.0
+    assert len(description.regions) == 23
+    assert description.event_rate_scheme_names == {
+        739: "RMS 2025 Stochastic Event Rates"
+    }
+    assert [problem.code for problem in description.problems] == [
+        "treaty_number_missing"
+    ]
+    assert description.problems[0].treaty_ids == (21,)
+    assert problem_message(description) == (
+        "Treaty for analysis ID 101 has no Treaty Number."
+    )
