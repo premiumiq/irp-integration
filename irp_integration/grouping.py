@@ -619,8 +619,8 @@ class _ReferenceLookups:
             region_code: The region code already resolved for that row
 
         Returns:
-            The peril code, or None when no ID resolves a ``modelRegionCode``
-            starting with ``region_code``
+            The peril code in upper case, or None when no ID resolves a
+            ``modelRegionCode`` starting with ``region_code``
         """
         if not region_code:
             return None
@@ -629,7 +629,7 @@ class _ReferenceLookups:
             return None
         if not model_region.upper().startswith(region_code.upper()):
             return None
-        return model_region[len(region_code):]
+        return model_region[len(region_code):].upper()
 
     def _model_region_for_row(self, raw_region: Mapping[str, Any]) -> Optional[str]:
         """Return the model region code one region row's scheme or PET ID names."""
