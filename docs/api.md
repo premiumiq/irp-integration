@@ -1745,7 +1745,13 @@ def __init__(
 
 What one analysis ran with: regions, event-rate scheme names, treaties.
 
-``regions`` holds one ``GroupingRegionFact`` per region row the Platform returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports 23 regions. A row whose framework, engine, peril, region, or model version did not resolve is absent from ``regions`` and reported in ``problems``, so the two together account for every row the Platform returned. ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler event-rate scheme row resolves; an ID no active row carries is absent.
+``regions`` holds one ``GroupingRegionFact`` per region row the Platform returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports 23 regions. A row whose framework, engine, peril, region, or model version did not resolve is absent from ``regions`` and reported in ``problems``.
+
+``regions`` and ``problems`` do not partition the rows, so do not reconcile ``len(regions) + len(problems)`` against the Platform's row count. A row that is kept is still reported when it raises ``pet_id_missing``, ``pet_periods_missing``, ``apply_contract_flag_unsupported`` or ``event_rate_scheme_missing``, and one row can raise more than one of them. ``GroupingProblem.sub_regions`` names the row a row-level problem concerns. A ``treaty_number_missing`` problem concerns no row at all.
+
+``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in ``regions`` that an active Risk Modeler event-rate scheme row resolves; an ID no active row carries is absent.
+
+``event_rate_scheme_names`` is a ``Mapping``, so ``RunDescription`` is not hashable despite ``frozen=True`` and its contents stay mutable. That is the existing pattern here rather than something ``describe_run`` introduced: ``GroupingTreaty.terms`` is a ``Dict``, so ``GroupingTreaty`` and any ``GroupingProblem`` carrying one are unhashable too.
 
 #### `__init__`
 
@@ -2606,6 +2612,8 @@ def __init__(
 Stable codes returned for rule-based grouping problems.
 
 ``EVENT_RATE_SCHEME_MISSING`` reports one ELT region that carries no positive ``eventRateSchemeId``. ``EVENT_RATE_SCHEME_MAPPING_MISSING`` reports a partition whose members disagree on their event-rate scheme and for which no active reference row carries the partition's ``perilCode``, ``modelRegionCode``, and, when the partition's ELT regions all come from DLM analyses, ``modelVersionCode``. The partition then has no option to offer, so the problem is returned in ``blocking_problems`` and ``submit`` refuses the group.
+
+A row-level message states what is true of the region row, not what it blocks, because ``AnalysisManager.describe_run`` reports the same problems for an analysis it is only describing. The codes keep the grouping meaning: ``APPLY_CONTRACT_FLAG_UNSUPPORTED`` still means ``inspect`` will not group the analysis, and ``MEMBER_METADATA_MISSING`` and ``MEMBER_REGION_DATA_MISSING`` keep their values even though they read oddly from a single-analysis call, because the value is what a caller branches on.
 
 ``TREATY_NUMBER_MISSING`` reports one treaty carrying no ``treatyNumber``. Only ``AnalysisManager.describe_run`` returns it: ``inspect`` keys treaties by ``treatyNumber`` to compare them across members, so an unnumbered treaty makes the grouping decision unsafe and raises ``IRPAPIError`` there instead.
 

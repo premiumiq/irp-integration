@@ -964,3 +964,28 @@ def test_rows_failing_the_model_version_lookup_each_name_their_sub_region():
     assert [problem.sub_regions for problem in description.problems] == [
         (code,) for code in NA_WS_SUB_REGIONS
     ]
+
+
+def test_a_reported_row_is_still_described():
+    """Describe a row and report it: the two tuples do not partition the rows.
+
+    A PLT row with applyContractFlag set is kept in ``regions`` and reported in
+    ``problems``, so ``len(regions) + len(problems)`` is not the Platform's row
+    count. The message states what is true of the row rather than that the
+    analysis cannot be grouped, which is not what describe_run was asked."""
+    manager, _ = make_manager(
+        WILDFIRE_DETAIL, [dict(WILDFIRE_REGION_ROW, applyContractFlag=True)]
+    )
+
+    description = manager.describe_run(106)
+
+    assert len(description.regions) == 1
+    assert description.regions[0].apply_contract_flag is True
+    assert description.regions[0].sub_region == "N2"
+    assert [problem.code for problem in description.problems] == [
+        "apply_contract_flag_unsupported"
+    ]
+    assert description.problems[0].sub_regions == ("N2",)
+    assert problem_message(description) == (
+        "PLT analysis 106 has a region row with applyContractFlag set."
+    )

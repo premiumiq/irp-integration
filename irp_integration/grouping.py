@@ -59,6 +59,15 @@ class GroupingProblemCode(str, Enum):
     option to offer, so the problem is returned in ``blocking_problems`` and
     ``submit`` refuses the group.
 
+    A row-level message states what is true of the region row, not what it
+    blocks, because ``AnalysisManager.describe_run`` reports the same problems
+    for an analysis it is only describing. The codes keep the grouping
+    meaning: ``APPLY_CONTRACT_FLAG_UNSUPPORTED`` still means ``inspect`` will
+    not group the analysis, and ``MEMBER_METADATA_MISSING`` and
+    ``MEMBER_REGION_DATA_MISSING`` keep their values even though they read
+    oddly from a single-analysis call, because the value is what a caller
+    branches on.
+
     ``TREATY_NUMBER_MISSING`` reports one treaty carrying no
     ``treatyNumber``. Only ``AnalysisManager.describe_run`` returns it:
     ``inspect`` keys treaties by ``treatyNumber`` to compare them across
@@ -817,7 +826,8 @@ def _region_facts(
         if framework not in {"ELT", "PLT"}:
             report(GroupingProblem(
                 code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
-                message=f"Analysis {analysis_id} has a region with no ELT/PLT classification.",
+                message=(f"Analysis {analysis_id} has a region row with no ELT/PLT "
+                         "classification."),
                 analysis_ids=(analysis_id,),
             ))
             continue
@@ -863,14 +873,16 @@ def _region_facts(
             if pet_id is None:
                 report(GroupingProblem(
                     code=GroupingProblemCode.PET_ID_MISSING.value,
-                    message=f"PLT analysis {analysis_id} has a region with no positive PET ID.",
+                    message=(f"PLT analysis {analysis_id} has a region row with no "
+                             "positive PET ID."),
                     analysis_ids=(analysis_id,),
                     sub_regions=row_sub_regions,
                 ))
             if periods is None:
                 report(GroupingProblem(
                     code=GroupingProblemCode.PET_PERIODS_MISSING.value,
-                    message=f"PLT analysis {analysis_id} has no positive period count.",
+                    message=(f"PLT analysis {analysis_id} has a region row with no "
+                             "positive period count."),
                     analysis_ids=(analysis_id,),
                     pet_ids=(pet_id,) if pet_id else (),
                     sub_regions=row_sub_regions,
@@ -878,7 +890,8 @@ def _region_facts(
             if apply_contract:
                 report(GroupingProblem(
                     code=GroupingProblemCode.APPLY_CONTRACT_FLAG_UNSUPPORTED.value,
-                    message=f"PLT analysis {analysis_id} applies contract dates and cannot be grouped.",
+                    message=(f"PLT analysis {analysis_id} has a region row with "
+                             "applyContractFlag set."),
                     analysis_ids=(analysis_id,),
                     sub_regions=row_sub_regions,
                 ))
@@ -886,8 +899,8 @@ def _region_facts(
         if not engine or not peril or not region:
             report(GroupingProblem(
                 code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
-                message=(f"Analysis {analysis_id} has a region missing engine, peril, "
-                         "or region metadata."),
+                message=(f"Analysis {analysis_id} has a region row missing engine, "
+                         "peril, or region metadata."),
                 analysis_ids=(analysis_id,),
                 sub_regions=row_sub_regions,
             ))
@@ -946,7 +959,8 @@ def _region_facts(
         if framework == "ELT" and scheme_id is None:
             report(GroupingProblem(
                 code=GroupingProblemCode.EVENT_RATE_SCHEME_MISSING.value,
-                message=f"ELT analysis {analysis_id} has no positive event-rate scheme ID.",
+                message=(f"ELT analysis {analysis_id} has a region row with no "
+                         "positive event-rate scheme ID."),
                 analysis_ids=(analysis_id,),
                 sub_regions=row_sub_regions,
                 partition=GroupingPartitionKey(peril, region, resolved_version),

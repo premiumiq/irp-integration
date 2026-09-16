@@ -77,11 +77,25 @@ class RunDescription:
     ``regions`` holds one ``GroupingRegionFact`` per region row the Platform
     returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports
     23 regions. A row whose framework, engine, peril, region, or model version
-    did not resolve is absent from ``regions`` and reported in ``problems``, so
-    the two together account for every row the Platform returned.
+    did not resolve is absent from ``regions`` and reported in ``problems``.
+
+    ``regions`` and ``problems`` do not partition the rows, so do not reconcile
+    ``len(regions) + len(problems)`` against the Platform's row count. A row
+    that is kept is still reported when it raises ``pet_id_missing``,
+    ``pet_periods_missing``, ``apply_contract_flag_unsupported`` or
+    ``event_rate_scheme_missing``, and one row can raise more than one of them.
+    ``GroupingProblem.sub_regions`` names the row a row-level problem concerns.
+    A ``treaty_number_missing`` problem concerns no row at all.
+
     ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in
     ``regions`` that an active Risk Modeler event-rate scheme row resolves; an
     ID no active row carries is absent.
+
+    ``event_rate_scheme_names`` is a ``Mapping``, so ``RunDescription`` is not
+    hashable despite ``frozen=True`` and its contents stay mutable. That is the
+    existing pattern here rather than something ``describe_run`` introduced:
+    ``GroupingTreaty.terms`` is a ``Dict``, so ``GroupingTreaty`` and any
+    ``GroupingProblem`` carrying one are unhashable too.
     """
 
     analysis_id: int
