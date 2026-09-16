@@ -689,7 +689,28 @@ class _ReferenceLookups:
         return model_region[len(region_code):].upper()
 
     def _model_region_for_row(self, raw_region: Mapping[str, Any]) -> Optional[str]:
-        """Return the model region code one region row's scheme or PET ID names."""
+        """Return the model region code one region row's scheme or PET ID names.
+
+        A failed ``PETMetadata`` read returns None rather than raising.
+        ``_region_facts`` is called outside ``_inspect``'s per-analysis
+        ``try/except``, so one 500 on the bulk read would turn a 40-analysis
+        ``inspect`` that reports per-analysis problems into a hard raise and
+        take ``describe_run`` with it. The row falls through to the next peril
+        candidate, its own ``perilCode``, which is what the row states anyway.
+        ``model_version`` and ``pet_metadata`` are error-tolerant the same way.
+
+        Args:
+            raw_region: One region row from ``AnalysisManager.get_regions``
+
+        Returns:
+            The ``modelRegionCode`` the row's ``eventRateSchemeId`` or
+            ``petId`` names, or None
+
+        Raises:
+            IRPAPIError: If the event-rate scheme read fails. That read is 151
+                rows and it is how the ``totalCount`` truncation guard
+                surfaces, so it propagates.
+        """
         scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
         if _positive_int(scheme):
             if self._scheme_model_regions is None:
@@ -701,13 +722,19 @@ class _ReferenceLookups:
                 return model_region
 
         pet = _field(raw_region, "petId", "simulationSetId")
-        if _positive_int(pet):
-            if self._pet_model_regions is None:
-                self._pet_model_regions = _unambiguous_model_regions(
-                    self._irp.reference_data.get_all_pet_metadata(), "id"
-                )
-            return self._pet_model_regions.get(int(pet))
-        return None
+        if not _positive_int(pet):
+            return None
+        if self._pet_model_regions is None:
+            try:
+                pet_rows = self._irp.reference_data.get_all_pet_metadata()
+            except IRPAPIError:
+                # Cache the failure the way model_version and pet_metadata
+                # cache theirs, so a 15,318-row inspect does not repeat a
+                # 2,844-row read that already exhausted the session retries.
+                self._pet_model_regions = {}
+                return None
+            self._pet_model_regions = _unambiguous_model_regions(pet_rows, "id")
+        return self._pet_model_regions.get(int(pet))
 
 
 def _region_facts(

@@ -1079,9 +1079,11 @@ class AnalysisManager:
 
         Raises:
             IRPValidationError: If analysis_id is invalid
-            IRPAPIError: If the analysis, region, treaty, or reference-data read
-                fails, if the analysis detail is empty or is not an object, or
-                if the region or treaty search returns a non-list response
+            IRPAPIError: If the analysis, region, treaty, or event-rate scheme
+                reference read fails, if the analysis detail is empty or is
+                not an object, or if the region or treaty search returns a
+                non-list response. A failed ``PETMetadata`` read does not
+                raise: the rows fall back to their own ``perilCode``.
         """
         validate_positive_int(analysis_id, "analysis_id")
 

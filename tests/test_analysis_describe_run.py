@@ -495,6 +495,8 @@ class FakeReferenceDataManager:
         self.pet_metadata = list(PET_METADATA_ROWS)
         self.pet_metadata_calls: List[Dict[str, Any]] = []
         self.pet_metadata_returns_none = False
+        self.all_pet_metadata_calls = 0
+        self.all_pet_metadata_error: Optional[IRPAPIError] = None
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
         """Return the active scheme rows in the Platform's envelope."""
@@ -513,7 +515,10 @@ class FakeReferenceDataManager:
         return MODEL_VERSIONS[key]
 
     def get_all_pet_metadata(self) -> List[Dict[str, Any]]:
-        """Return every PET metadata row."""
+        """Return every PET metadata row, or raise the configured read failure."""
+        self.all_pet_metadata_calls += 1
+        if self.all_pet_metadata_error is not None:
+            raise self.all_pet_metadata_error
         return list(self.pet_metadata)
 
     def get_pet_metadata_exact(self, **kwargs: Any) -> Optional[Dict[str, Any]]:
@@ -894,3 +899,25 @@ def test_scheme_name_skips_a_row_whose_scheme_id_is_not_a_positive_int():
 
     assert {region.event_rate_scheme_id for region in description.regions} == {1}
     assert description.event_rate_scheme_names == {}
+
+
+def test_failed_pet_metadata_read_leaves_the_row_on_its_own_peril_code():
+    """Describe the run instead of raising when the bulk PETMetadata read fails.
+
+    ``_region_facts`` runs outside ``_inspect``'s per-analysis try/except, so a
+    500 on the 2,844-row read aborted the whole call. Each row falls through to
+    its own perilCode, and the failed read is attempted once, not once per row."""
+    manager, reference_data = make_manager(
+        WILDFIRE_DETAIL, rows(WILDFIRE_REGION_ROW)
+    )
+    reference_data.all_pet_metadata_error = IRPAPIError(
+        "500 Server Error: Internal Server Error"
+    )
+
+    description = manager.describe_run(106)
+
+    assert description.problems == ()
+    assert len(description.regions) == 23
+    assert {region.peril_code for region in description.regions} == {"WF"}
+    assert {region.model_version for region in description.regions} == {"2.0"}
+    assert reference_data.all_pet_metadata_calls == 1
