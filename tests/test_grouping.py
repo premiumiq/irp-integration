@@ -213,7 +213,7 @@ class FakeReferenceDataManager:
             {"id": 16, "perilCode": "WS", "modelRegionCode": "JPWS",
              "modelVersionCode": "2.1", "petName": NON_TYPHOON_PET_NAME},
         ]
-        self.event_rate_scheme_total: Optional[int] = None
+        self.event_rate_scheme_total: Any = None
         self.pet_metadata_error: Optional[IRPAPIError] = None
         self.pet_metadata_calls: List[Dict[str, Any]] = []
         self.simulation_sets = [
@@ -234,7 +234,8 @@ class FakeReferenceDataManager:
         """Return the fixture scheme list in the Platform's envelope.
 
         ``totalCount`` reports the row count unless a test overrides it with
-        ``event_rate_scheme_total`` to stand in for a server-side cap.
+        ``event_rate_scheme_total``, which stands in for a server-side cap or
+        for a ``totalCount`` the response restated in another shape.
         """
         total = self.event_rate_scheme_total
         return {
@@ -840,6 +841,31 @@ def test_truncated_event_rate_scheme_read_raises():
     reference.event_rate_scheme_total = len(reference.event_rate_schemes) + 1
 
     with pytest.raises(IRPAPIError, match=r"Event-rate scheme search returned \d+ of \d+ rows"):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+@pytest.mark.parametrize("restate", [str, float])
+def test_truncated_event_rate_scheme_read_raises_on_a_restated_total(restate):
+    """Catch a short read whether totalCount is an int, a string or a float.
+
+    ``_positive_int`` requires ``isinstance(value, int)``, so a ``totalCount``
+    of ``"151"`` or ``151.0`` would switch the guard off — a changed response
+    shape is exactly the case where a short read would go unnoticed."""
+    manager, _, reference = make_manager(*pure_elt_fixtures())
+    reference.event_rate_scheme_total = restate(
+        len(reference.event_rate_schemes) + 1
+    )
+
+    with pytest.raises(IRPAPIError, match=r"Event-rate scheme search returned \d+ of \d+ rows"):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+def test_event_rate_scheme_total_that_is_not_a_row_count_raises():
+    """Raise rather than skipping the truncation guard on an unreadable total."""
+    manager, _, reference = make_manager(*pure_elt_fixtures())
+    reference.event_rate_scheme_total = {}
+
+    with pytest.raises(IRPAPIError, match="totalCount that is not a row count"):
         manager.inspect(analysis_ids=[1, 2])
 
 

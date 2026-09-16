@@ -340,6 +340,34 @@ def _positive_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
+def _row_count(value: Any) -> Optional[int]:
+    """Return a ``totalCount`` field as a row count.
+
+    The Platform returns ``totalCount`` as an ``int``, but a shape change to
+    ``"151"`` or ``151.0`` must not switch a truncation guard off: a changed
+    response shape is exactly the case where a short read would go unnoticed.
+    A bool is not a row count, and neither is a float with a fractional part.
+
+    Args:
+        value: The ``totalCount`` field as the response carried it
+
+    Returns:
+        The row count, or None when the value is not one
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def _text(value: Any) -> Optional[str]:
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -559,8 +587,9 @@ class _ReferenceLookups:
             Every active event-rate scheme row
 
         Raises:
-            IRPAPIError: If the reference read returns a non-list response, or
-                fewer rows than its ``totalCount`` reports
+            IRPAPIError: If the reference read returns a non-list response,
+                fewer rows than its ``totalCount`` reports, or a
+                ``totalCount`` that is not a row count
         """
         if self._scheme_rows is None:
             payload = self._irp.reference_data.get_event_rate_schemes()
@@ -577,20 +606,41 @@ class _ReferenceLookups:
                     "Event-rate scheme search returned a non-list response"
                 )
             total = envelope.get("totalCount")
-            if _positive_int(total) and len(rows) < total:
-                raise IRPAPIError(
-                    f"Event-rate scheme search returned {len(rows)} of "
-                    f"{total} rows"
-                )
+            if total is not None:
+                count = _row_count(total)
+                if count is None:
+                    raise IRPAPIError(
+                        "Event-rate scheme search returned a totalCount that "
+                        f"is not a row count: {total!r}"
+                    )
+                if len(rows) < count:
+                    raise IRPAPIError(
+                        f"Event-rate scheme search returned {len(rows)} of "
+                        f"{count} rows"
+                    )
             self._scheme_rows = tuple(
                 row for row in rows if isinstance(row, Mapping)
             )
         return self._scheme_rows
 
     def scheme_name(self, scheme_id: int) -> Optional[str]:
-        """Return Risk Modeler's label for an event-rate scheme ID."""
+        """Return Risk Modeler's label for an event-rate scheme ID.
+
+        ``eventRateSchemeId`` is read the way ``_unambiguous_model_regions``,
+        the active-scheme-ID set in ``_inspect`` and its applicable-scheme
+        lookup read the same field over the same rows: through
+        ``_positive_int`` and then ``int()``. A bare ``==`` matched a row
+        carrying ``True`` against scheme ID 1.
+
+        Args:
+            scheme_id: Event-rate scheme ID from a region row
+
+        Returns:
+            The ``eventRateSchemeName`` of the row carrying that ID, or None
+        """
         for row in self.event_rate_scheme_rows():
-            if row.get("eventRateSchemeId") == scheme_id:
+            row_id = row.get("eventRateSchemeId")
+            if _positive_int(row_id) and int(row_id) == scheme_id:
                 return _text(row.get("eventRateSchemeName"))
         return None
 

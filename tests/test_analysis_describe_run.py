@@ -870,3 +870,27 @@ def test_treaty_without_a_treaty_number_is_reported_and_kept(unnumbered):
     assert problem_message(description) == (
         "Treaty for analysis ID 101 has no Treaty Number."
     )
+
+
+def test_scheme_name_skips_a_row_whose_scheme_id_is_not_a_positive_int():
+    """Read eventRateSchemeId the way the three other readers of the field do.
+
+    A bare ``==`` matched a row carrying True against scheme ID 1, and named
+    the analysis's scheme after it."""
+    manager, reference_data = make_manager(
+        OWN_DLM_DETAIL,
+        rows(dict(OWN_DLM_REGION_ROW, eventRateSchemeId=1)),
+    )
+    reference_data.event_rate_schemes.append({
+        "eventRateSchemeId": True,
+        "perilCode": "WS",
+        "modelRegionCode": "NAWS",
+        "modelVersionCode": "11.0",
+        "eventRateSchemeName": "Not a scheme name",
+        "isActive": True,
+    })
+
+    description = manager.describe_run(101)
+
+    assert {region.event_rate_scheme_id for region in description.regions} == {1}
+    assert description.event_rate_scheme_names == {}
