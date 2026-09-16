@@ -2577,6 +2577,10 @@ def __init__(self, peril_code: str, region_code: str, model_version: str)
 
 Structured grouping problem suitable for caller rendering.
 
+``sub_regions`` names the region row a row-level problem concerns. A 23-sub-region windstorm analysis whose engine, region and peril resolve no ``SoftwareModelVersionMap`` entry reports 23 problems, each naming its own sub-region, so a caller can tell which of AL, CT, D1 was dropped. ``inspect`` reports one problem per distinct sub-region where it reported one for the whole analysis.
+
+``terms`` on a ``GroupingTreaty`` in ``treaties`` is a ``Dict``, so a ``GroupingProblem`` carrying one is not hashable despite ``frozen=True``.
+
 #### `__init__`
 
 ```python
@@ -2587,6 +2591,7 @@ def __init__(
     analysis_ids: Tuple[int, ...] = (),
     partition: Optional[irp_integration.grouping.GroupingPartitionKey] = None,
     pet_ids: Tuple[int, ...] = (),
+    sub_regions: Tuple[str, ...] = (),
     treaty_numbers: Tuple[str, ...] = (),
     treaty_ids: Tuple[int, ...] = (),
     differing_fields: Tuple[str, ...] = (),

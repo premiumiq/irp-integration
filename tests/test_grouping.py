@@ -1595,6 +1595,26 @@ def test_model_version_cardinality_problem_is_structured(message, code):
     assert code in {p.code for p in inspection.blocking_problems}
 
 
+def test_each_dropped_region_row_names_its_own_sub_region():
+    """Report one problem per sub-region rather than one for the analysis.
+
+    ``_deduplicate_problems`` keys on ``sub_regions``, so region rows that fail
+    the model-version lookup identically no longer collapse to one problem
+    naming whichever sub-region happened to be last."""
+    details, regions = pure_elt_fixtures()
+    regions[1] = [region(1, sub_region=code) for code in ("AL", "CT", "D1")]
+    manager, _, reference_data = make_manager(details, regions)
+    reference_data.model_version_error = IRPAPIError("No model version mapping found")
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert [
+        problem.sub_regions for problem in inspection.blocking_problems
+        if problem.code == "model_version_mapping_missing"
+        and problem.analysis_ids == (1,)
+    ] == [("AL",), ("CT",), ("D1",)]
+
+
 def test_fingerprint_ignores_irrelevant_region_response_order():
     """Normalize region rows before computing the concurrency fingerprint."""
     details, regions = pure_elt_fixtures()

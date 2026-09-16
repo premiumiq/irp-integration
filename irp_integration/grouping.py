@@ -244,13 +244,25 @@ class GroupingTreaty:
 
 @dataclass(frozen=True)
 class GroupingProblem:
-    """Structured grouping problem suitable for caller rendering."""
+    """Structured grouping problem suitable for caller rendering.
+
+    ``sub_regions`` names the region row a row-level problem concerns. A
+    23-sub-region windstorm analysis whose engine, region and peril resolve no
+    ``SoftwareModelVersionMap`` entry reports 23 problems, each naming its own
+    sub-region, so a caller can tell which of AL, CT, D1 was dropped.
+    ``inspect`` reports one problem per distinct sub-region where it reported
+    one for the whole analysis.
+
+    ``terms`` on a ``GroupingTreaty`` in ``treaties`` is a ``Dict``, so a
+    ``GroupingProblem`` carrying one is not hashable despite ``frozen=True``.
+    """
 
     code: str
     message: str
     analysis_ids: Tuple[int, ...] = ()
     partition: Optional[GroupingPartitionKey] = None
     pet_ids: Tuple[int, ...] = ()
+    sub_regions: Tuple[str, ...] = ()
     treaty_numbers: Tuple[str, ...] = ()
     treaty_ids: Tuple[int, ...] = ()
     differing_fields: Tuple[str, ...] = ()
@@ -810,6 +822,8 @@ def _region_facts(
             ))
             continue
         observed_frameworks.add(framework)
+        sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
+        row_sub_regions = (sub_region,) if sub_region else ()
         row_engine = _text(_field(raw_region, "engineVersion", "softwareVersionCode"))
         row_region = _resolve_code(
             _field(raw_region, "regionCode", "region"), detail_region, detail_region_name
@@ -836,7 +850,6 @@ def _region_facts(
             if derived_peril:
                 peril_candidates.append(derived_peril)
         peril = peril_candidates[0] if peril_candidates else None
-        sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
         apply_contract = bool(_field(raw_region, "applyContractFlag"))
         scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
         scheme_id = int(scheme) if _positive_int(scheme) else analysis_scheme
@@ -852,6 +865,7 @@ def _region_facts(
                     code=GroupingProblemCode.PET_ID_MISSING.value,
                     message=f"PLT analysis {analysis_id} has a region with no positive PET ID.",
                     analysis_ids=(analysis_id,),
+                    sub_regions=row_sub_regions,
                 ))
             if periods is None:
                 report(GroupingProblem(
@@ -859,12 +873,14 @@ def _region_facts(
                     message=f"PLT analysis {analysis_id} has no positive period count.",
                     analysis_ids=(analysis_id,),
                     pet_ids=(pet_id,) if pet_id else (),
+                    sub_regions=row_sub_regions,
                 ))
             if apply_contract:
                 report(GroupingProblem(
                     code=GroupingProblemCode.APPLY_CONTRACT_FLAG_UNSUPPORTED.value,
                     message=f"PLT analysis {analysis_id} applies contract dates and cannot be grouped.",
                     analysis_ids=(analysis_id,),
+                    sub_regions=row_sub_regions,
                 ))
 
         if not engine or not peril or not region:
@@ -873,6 +889,7 @@ def _region_facts(
                 message=(f"Analysis {analysis_id} has a region missing engine, peril, "
                          "or region metadata."),
                 analysis_ids=(analysis_id,),
+                sub_regions=row_sub_regions,
             ))
             continue
 
@@ -912,6 +929,7 @@ def _region_facts(
                          f"region {region}, and peril "
                          f"{', '.join(peril_candidates)} was not resolved exactly."),
                 analysis_ids=(analysis_id,),
+                sub_regions=row_sub_regions,
             ))
             continue
 
@@ -930,6 +948,7 @@ def _region_facts(
                 code=GroupingProblemCode.EVENT_RATE_SCHEME_MISSING.value,
                 message=f"ELT analysis {analysis_id} has no positive event-rate scheme ID.",
                 analysis_ids=(analysis_id,),
+                sub_regions=row_sub_regions,
                 partition=GroupingPartitionKey(peril, region, resolved_version),
             ))
 
@@ -1572,6 +1591,7 @@ class GroupingManager:
                 "analysis_ids": problem.analysis_ids,
                 "partition": asdict(problem.partition) if problem.partition else None,
                 "pet_ids": problem.pet_ids,
+                "sub_regions": problem.sub_regions,
                 "treaty_numbers": problem.treaty_numbers,
                 "treaty_ids": problem.treaty_ids,
                 "differing_fields": problem.differing_fields,

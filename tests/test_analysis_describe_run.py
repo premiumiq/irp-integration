@@ -943,3 +943,24 @@ def test_a_row_peril_code_that_resolves_skips_the_pet_metadata_read():
     assert {region.peril_code for region in description.regions} == {"WF"}
     assert {region.model_version for region in description.regions} == {"2.0"}
     assert reference_data.all_pet_metadata_calls == 0
+
+
+def test_rows_failing_the_model_version_lookup_each_name_their_sub_region():
+    """Report one problem per sub-region, not 23 byte-identical ones.
+
+    Naming the row is the point of reporting a dropped row rather than raising:
+    a caller has to be able to tell which of AL, CT, D1 was dropped."""
+    detail = dict(OWN_DLM_DETAIL, engineVersion="RL99")
+    manager, _ = make_manager(
+        detail, rows(dict(OWN_DLM_REGION_ROW, engineVersion="RL99"))
+    )
+
+    description = manager.describe_run(101)
+
+    assert description.regions == ()
+    assert {problem.code for problem in description.problems} == {
+        "model_version_mapping_missing"
+    }
+    assert [problem.sub_regions for problem in description.problems] == [
+        (code,) for code in NA_WS_SUB_REGIONS
+    ]
