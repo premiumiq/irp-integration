@@ -665,11 +665,13 @@ class _ReferenceLookups:
         carry ``perilCode`` ``FR``, and ``NA`` followed by ``FR`` matches no
         ``modelRegionCode``.
 
-        The code is the first peril candidate ``_region_facts`` tries, not the
+        The code is the last peril candidate ``_region_facts`` tries, not the
         row's answer: a scheme or PET registered under a ``modelRegionCode``
         whose peril the row does not carry returns a code here that resolves no
-        model version, and ``_region_facts`` then falls through to the row's own
-        ``perilCode``.
+        model version. ``_region_facts`` tries the row's own ``perilCode`` and
+        the detail's first, because both cost no read and this one costs the
+        ``PETMetadata`` pagination when the row's ``eventRateSchemeId``
+        resolves no ``modelRegionCode``.
 
         Args:
             raw_region: One region row from ``AnalysisManager.get_regions``
@@ -747,17 +749,27 @@ def _region_facts(
     """Normalize the region rows of one analysis.
 
     A region row carries the peril as a display name, so the region code is
-    resolved first and three peril candidates are collected in order: the code
-    ``_ReferenceLookups.peril_code_for_row`` reads off the ``modelRegionCode``
-    the row's ``eventRateSchemeId`` or ``petId`` names, the code
-    ``_resolve_code`` returns for the row's own ``perilCode``, and the detail's
-    ``perilCode``. ``get_model_version_by_engine_region_peril`` picks between
-    them: the first candidate that resolves a model version becomes the row's
-    peril. A candidate that resolves nothing does not end the row, because a
+    resolved first and three peril candidates are tried in order: the code
+    ``_resolve_code`` returns for the row's own ``perilCode``, the detail's
+    ``perilCode``, and the code ``_ReferenceLookups.peril_code_for_row`` reads
+    off the ``modelRegionCode`` the row's ``eventRateSchemeId`` or ``petId``
+    names. ``get_model_version_by_engine_region_peril`` picks between them: the
+    first candidate that resolves a model version becomes the row's peril. A
+    candidate that resolves nothing does not end the row, because a
     ``modelRegionCode`` registered under a peril the row does not carry would
-    otherwise drop a row whose own ``perilCode`` maps. A row without an ELT or
-    PLT classification, without engine, peril, or region metadata, or for which
-    no candidate resolves a model version is reported and dropped.
+    otherwise drop a row whose own ``perilCode`` maps.
+
+    The first two candidates cost no read. The third costs the 2,844-row
+    ``PETMetadata`` pagination whenever the row's ``eventRateSchemeId``
+    resolves no ``modelRegionCode``, so it is read only once neither of the
+    first two has resolved a model version, or when the row carries neither of
+    them. Over the 15,318 region rows of one tenant, 12,892 settle on a free
+    candidate, and no row settles on a different peril than it did when the
+    derived candidate was tried first.
+
+    A row without an ELT or PLT classification, without engine, peril, or
+    region metadata, or for which no candidate resolves a model version is
+    reported and dropped.
 
     Args:
         analysis_id: Platform analysis ID the region rows belong to
@@ -804,9 +816,13 @@ def _region_facts(
         )
         region = row_region or detail_region
         engine = row_engine or detail_engine
+        # The row's own code and the detail's cost no read. The code derived
+        # from the modelRegionCode the row's eventRateSchemeId or petId names
+        # costs the 2,844-row PETMetadata pagination whenever the scheme ID
+        # resolves nothing, so it is read only once neither free candidate has
+        # resolved a model version, or when the row carries neither.
         peril_candidates: List[str] = []
         for candidate in (
-            lookups.peril_code_for_row(raw_region, region),
             _resolve_code(
                 _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
             ),
@@ -814,6 +830,11 @@ def _region_facts(
         ):
             if candidate and candidate not in peril_candidates:
                 peril_candidates.append(candidate)
+        derived_peril: Optional[str] = None
+        if not peril_candidates:
+            derived_peril = lookups.peril_code_for_row(raw_region, region)
+            if derived_peril:
+                peril_candidates.append(derived_peril)
         peril = peril_candidates[0] if peril_candidates else None
         sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
         apply_contract = bool(_field(raw_region, "applyContractFlag"))
@@ -865,6 +886,22 @@ def _region_facts(
                 break
             if version_error is None:
                 version_error = error
+
+        # derived_peril is None only when the derived candidate has not been
+        # read: the branch above reads it whenever the free candidates are
+        # empty, and an empty candidate list leaves the row on the metadata
+        # guard above rather than here.
+        if resolved_version is None and derived_peril is None:
+            derived_peril = lookups.peril_code_for_row(raw_region, region)
+            if derived_peril and derived_peril not in peril_candidates:
+                peril_candidates.append(derived_peril)
+                version, error = lookups.model_version(engine, region, derived_peril)
+                if error is None and version is not None:
+                    peril = derived_peril
+                    resolved_version = version
+                elif version_error is None:
+                    version_error = error
+
         if resolved_version is None:
             code = (GroupingProblemCode.MODEL_VERSION_MAPPING_AMBIGUOUS.value
                     if "multiple" in str(version_error).lower()

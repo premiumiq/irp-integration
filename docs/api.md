@@ -2288,14 +2288,16 @@ Reads the analysis detail, its region rows, and its treaties, and names
 each region's event-rate scheme from the active Risk Modeler reference
 rows. Regions are normalized the way ``GroupingManager.inspect``
 normalizes them. A region row names its peril as a display name, so its
-peril code is the ``modelRegionCode`` of the ``eventratescheme`` row its
+peril code is the row's own ``perilCode`` resolved against the detail,
+then the detail's ``perilCode``, and failing both the
+``modelRegionCode`` of the ``eventratescheme`` row its
 ``eventRateSchemeId`` names or the ``PETMetadata`` row its ``petId``
-names, with the region code stripped off the front; it falls back to the
-detail's ``perilCode``. A PLT region's ``petId`` is then named through
-the ``PETMetadata`` row for the region's model version, since PET ID 12
-exists under more than one model version with a different ``petName``. A
-``petId`` no ``PETMetadata`` row qualifies keeps its ID and periods and
-reports ``pet_name`` None.
+names, with the region code stripped off the front. A PLT region's
+``petId`` is then named through the ``PETMetadata`` row for the
+region's model version, since PET ID 12 exists under more than one
+model version with a different ``petName``. A ``petId`` no
+``PETMetadata`` row qualifies keeps its ID and periods and reports
+``pet_name`` None.
 
 A region row that does not normalize is reported in ``problems``
 rather than raised on: one unresolved sub-region does not make the rest

@@ -901,17 +901,39 @@ def test_scheme_name_skips_a_row_whose_scheme_id_is_not_a_positive_int():
     assert description.event_rate_scheme_names == {}
 
 
-def test_failed_pet_metadata_read_leaves_the_row_on_its_own_peril_code():
-    """Describe the run instead of raising when the bulk PETMetadata read fails.
+def test_failed_pet_metadata_read_reports_the_row_instead_of_raising():
+    """Describe the run when the bulk PETMetadata read fails on a row needing it.
 
     ``_region_facts`` runs outside ``_inspect``'s per-analysis try/except, so a
-    500 on the 2,844-row read aborted the whole call. Each row falls through to
-    its own perilCode, and the failed read is attempted once, not once per row."""
+    500 on the 2,844-row read aborted the whole call. The PLT row's own peril
+    "Earthquake" and the group detail's YY resolve no model version, so the row
+    needs the derived candidate; with the read failing it is reported, not
+    raised on, and the read is attempted once rather than once per row."""
     manager, reference_data = make_manager(
-        WILDFIRE_DETAIL, rows(WILDFIRE_REGION_ROW)
+        MULTI_PERIL_GROUP_DETAIL,
+        MULTI_PERIL_GROUP_REGION_ROWS + [MULTI_PERIL_PLT_REGION_ROW],
     )
     reference_data.all_pet_metadata_error = IRPAPIError(
         "500 Server Error: Internal Server Error"
+    )
+
+    description = manager.describe_run(105)
+
+    assert [region.sub_region for region in description.regions] == ["FL", "CA"]
+    assert [problem.code for problem in description.problems] == [
+        "model_version_mapping_missing"
+    ]
+    assert reference_data.all_pet_metadata_calls == 1
+
+
+def test_a_row_peril_code_that_resolves_skips_the_pet_metadata_read():
+    """Read the derived peril only once the row's own code and the detail's fail.
+
+    The wildfire rows carry peril "Wildfire", which resolves to the detail's WF,
+    so the 2,844-row PETMetadata pagination the derived candidate needs is never
+    read. Every row still records WF and model version 2.0."""
+    manager, reference_data = make_manager(
+        WILDFIRE_DETAIL, rows(WILDFIRE_REGION_ROW)
     )
 
     description = manager.describe_run(106)
@@ -920,4 +942,4 @@ def test_failed_pet_metadata_read_leaves_the_row_on_its_own_peril_code():
     assert len(description.regions) == 23
     assert {region.peril_code for region in description.regions} == {"WF"}
     assert {region.model_version for region in description.regions} == {"2.0"}
-    assert reference_data.all_pet_metadata_calls == 1
+    assert reference_data.all_pet_metadata_calls == 0
