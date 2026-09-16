@@ -608,6 +608,12 @@ class _ReferenceLookups:
         carry ``perilCode`` ``FR``, and ``NA`` followed by ``FR`` matches no
         ``modelRegionCode``.
 
+        The code is the first peril candidate ``_region_facts`` tries, not the
+        row's answer: a scheme or PET registered under a ``modelRegionCode``
+        whose peril the row does not carry returns a code here that resolves no
+        model version, and ``_region_facts`` then falls through to the row's own
+        ``perilCode``.
+
         Args:
             raw_region: One region row from ``AnalysisManager.get_regions``
             region_code: The region code already resolved for that row
@@ -657,11 +663,17 @@ def _region_facts(
     """Normalize the region rows of one analysis.
 
     A region row carries the peril as a display name, so the region code is
-    resolved first and ``_ReferenceLookups.peril_code_for_row`` then reads the
-    peril off the ``modelRegionCode`` the row's ``eventRateSchemeId`` or
-    ``petId`` names; the detail's ``perilCode`` is the fallback. A row without
-    an ELT or PLT classification, without engine, peril, or region metadata, or
-    whose model version does not resolve exactly is reported and dropped.
+    resolved first and three peril candidates are collected in order: the code
+    ``_ReferenceLookups.peril_code_for_row`` reads off the ``modelRegionCode``
+    the row's ``eventRateSchemeId`` or ``petId`` names, the code
+    ``_resolve_code`` returns for the row's own ``perilCode``, and the detail's
+    ``perilCode``. ``get_model_version_by_engine_region_peril`` picks between
+    them: the first candidate that resolves a model version becomes the row's
+    peril. A candidate that resolves nothing does not end the row, because a
+    ``modelRegionCode`` registered under a peril the row does not carry would
+    otherwise drop a row whose own ``perilCode`` maps. A row without an ELT or
+    PLT classification, without engine, peril, or region metadata, or for which
+    no candidate resolves a model version is reported and dropped.
 
     Args:
         analysis_id: Platform analysis ID the region rows belong to
@@ -707,11 +719,18 @@ def _region_facts(
             _field(raw_region, "regionCode", "region"), detail_region, detail_region_name
         )
         region = row_region or detail_region
-        row_peril = lookups.peril_code_for_row(raw_region, region) or _resolve_code(
-            _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
-        )
         engine = row_engine or detail_engine
-        peril = row_peril or detail_peril
+        peril_candidates: List[str] = []
+        for candidate in (
+            lookups.peril_code_for_row(raw_region, region),
+            _resolve_code(
+                _field(raw_region, "perilCode", "peril"), detail_peril, detail_peril_name
+            ),
+            detail_peril,
+        ):
+            if candidate and candidate not in peril_candidates:
+                peril_candidates.append(candidate)
+        peril = peril_candidates[0] if peril_candidates else None
         sub_region = _text(_field(raw_region, "subRegion", "subRegionCode")) or ""
         apply_contract = bool(_field(raw_region, "applyContractFlag"))
         scheme = _field(raw_region, "eventRateSchemeId", "rateSchemeId")
@@ -752,15 +771,25 @@ def _region_facts(
             ))
             continue
 
-        resolved_version, version_error = lookups.model_version(engine, region, peril)
-        if version_error is not None or resolved_version is None:
+        resolved_version: Optional[str] = None
+        version_error: Optional[Exception] = None
+        for candidate in peril_candidates:
+            version, error = lookups.model_version(engine, region, candidate)
+            if error is None and version is not None:
+                peril = candidate
+                resolved_version = version
+                break
+            if version_error is None:
+                version_error = error
+        if resolved_version is None:
             code = (GroupingProblemCode.MODEL_VERSION_MAPPING_AMBIGUOUS.value
                     if "multiple" in str(version_error).lower()
                     else GroupingProblemCode.MODEL_VERSION_MAPPING_MISSING.value)
             report(GroupingProblem(
                 code=code,
                 message=(f"Model version for analysis {analysis_id}, engine {engine}, "
-                         f"region {region}, and peril {peril} was not resolved exactly."),
+                         f"region {region}, and peril "
+                         f"{', '.join(peril_candidates)} was not resolved exactly."),
                 analysis_ids=(analysis_id,),
             ))
             continue

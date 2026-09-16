@@ -887,6 +887,31 @@ def test_multi_peril_row_resolving_to_no_peril_code_blocks():
     assert inspection.members[0].regions == ()
 
 
+def test_row_peril_is_used_when_the_scheme_model_region_names_another_peril():
+    """A scheme registered under a modelRegionCode whose peril the row does not
+    carry must not drop the row. Scheme 104 names NACS, so the derived peril is
+    CS and no SoftwareModelVersionMap row carries RL23/NA/CS; the row's own
+    perilCode WS resolves 11.0 and is the peril the fact keeps."""
+    details = {1: analysis(1), 2: analysis(2)}
+    regions = {1: [region(1, scheme_id=104)], 2: [region(2)]}
+    manager, _, reference = make_manager(details, regions)
+    reference.event_rate_schemes.append({
+        "eventRateSchemeId": 104,
+        "eventRateSchemeName": "Convective Storm Stochastic",
+        "perilCode": "CS",
+        "modelRegionCode": "NACS",
+        "modelVersionCode": "5.0",
+    })
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.blocking_problems == ()
+    assert [
+        (fact.peril_code, fact.model_region_code, fact.model_version)
+        for fact in inspection.members[0].regions
+    ] == [("WS", "FLWS", "11.0")]
+
+
 def test_each_offered_scheme_is_named_from_reference_data():
     """A group's detail names only one of the schemes its members ran under, so
     naming every offered scheme from the detail showed one name on both. Each

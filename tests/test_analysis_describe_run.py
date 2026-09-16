@@ -754,7 +754,8 @@ def test_multi_peril_plt_row_resolves_its_peril_from_the_pet_id():
 
 
 def test_row_resolving_to_no_peril_code_is_dropped_and_reported():
-    """Report the dropped row instead of losing it: YY resolves no model version."""
+    """Report the dropped row instead of losing it, and name every peril tried:
+    the row's own "Unknown" and the detail's YY each resolve no model version."""
     unresolved = dict(
         MULTI_PERIL_GROUP_REGION_ROWS[0],
         subRegion="D1",
@@ -774,7 +775,7 @@ def test_row_resolving_to_no_peril_code_is_dropped_and_reported():
     ]
     assert problem_message(description) == (
         "Model version for analysis 105, engine RL25, region NA, and peril "
-        "Unknown was not resolved exactly."
+        "Unknown, YY was not resolved exactly."
     )
 
 
