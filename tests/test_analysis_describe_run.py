@@ -989,3 +989,23 @@ def test_a_reported_row_is_still_described():
     assert problem_message(description) == (
         "PLT analysis 106 has a region row with applyContractFlag set."
     )
+
+
+def test_an_unclassified_region_row_is_reported_without_grouping_vocabulary():
+    """Report a row with no ELT/PLT classification as a region-row problem.
+
+    ``describe_run`` describes one analysis, so the code names the region row
+    rather than a group member the caller never offered."""
+    manager, _ = make_manager(
+        WILDFIRE_DETAIL, [dict(WILDFIRE_REGION_ROW, framework="Unknown")]
+    )
+
+    description = manager.describe_run(106)
+
+    assert description.regions == ()
+    assert [problem.code for problem in description.problems] == [
+        "region_row_metadata_missing"
+    ]
+    assert problem_message(description) == (
+        "Analysis 106 has a region row with no ELT/PLT classification."
+    )

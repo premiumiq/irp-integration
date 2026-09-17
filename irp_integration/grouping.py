@@ -61,12 +61,17 @@ class GroupingProblemCode(str, Enum):
 
     A row-level message states what is true of the region row, not what it
     blocks, because ``AnalysisManager.describe_run`` reports the same problems
-    for an analysis it is only describing. The codes keep the grouping
-    meaning: ``APPLY_CONTRACT_FLAG_UNSUPPORTED`` still means ``inspect`` will
-    not group the analysis, and ``MEMBER_METADATA_MISSING`` and
-    ``MEMBER_REGION_DATA_MISSING`` keep their values even though they read
-    oddly from a single-analysis call, because the value is what a caller
-    branches on.
+    for an analysis it is only describing. ``REGION_ROW_METADATA_MISSING``
+    reports one region row that is malformed, carries no ELT/PLT
+    classification, or is missing its engine, peril, or region.
+
+    The ``MEMBER_`` codes stay confined to ``inspect``: ``MEMBER_NOT_FOUND``,
+    ``MEMBER_REGION_DATA_MISSING`` and ``MEMBER_CLASSIFICATION_CONFLICT``
+    concern an analysis offered as a group member, and ``describe_run``
+    returns none of them. ``APPLY_CONTRACT_FLAG_UNSUPPORTED`` is the one code
+    both callers return that also carries a grouping meaning: the row sets
+    ``applyContractFlag``, which is a fact about the row, and ``inspect`` will
+    not group the analysis.
 
     ``TREATY_NUMBER_MISSING`` reports one treaty carrying no
     ``treatyNumber``. Only ``AnalysisManager.describe_run`` returns it:
@@ -77,7 +82,6 @@ class GroupingProblemCode(str, Enum):
 
     INSPECTION_CHANGED = "inspection_changed"
     MEMBER_NOT_FOUND = "member_not_found"
-    MEMBER_METADATA_MISSING = "member_metadata_missing"
     MEMBER_REGION_DATA_MISSING = "member_region_data_missing"
     MEMBER_CLASSIFICATION_CONFLICT = "member_classification_conflict"
     MODEL_VERSION_MAPPING_MISSING = "model_version_mapping_missing"
@@ -99,6 +103,7 @@ class GroupingProblemCode(str, Enum):
         "simulation_periods_selection_unknown_partition"
     )
     SIMULATION_PERIODS_SELECTION_NOT_REQUIRED = "simulation_periods_selection_not_required"
+    REGION_ROW_METADATA_MISSING = "region_row_metadata_missing"
     PET_ID_MISSING = "pet_id_missing"
     PET_PERIODS_MISSING = "pet_periods_missing"
     APPLY_CONTRACT_FLAG_UNSUPPORTED = "apply_contract_flag_unsupported"
@@ -816,7 +821,7 @@ def _region_facts(
     for raw_region in raw_regions:
         if not isinstance(raw_region, Mapping):
             report(GroupingProblem(
-                code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
+                code=GroupingProblemCode.REGION_ROW_METADATA_MISSING.value,
                 message=f"Analysis {analysis_id} returned a malformed region row.",
                 analysis_ids=(analysis_id,),
             ))
@@ -825,7 +830,7 @@ def _region_facts(
         framework = (framework or analysis_framework or "").upper()
         if framework not in {"ELT", "PLT"}:
             report(GroupingProblem(
-                code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
+                code=GroupingProblemCode.REGION_ROW_METADATA_MISSING.value,
                 message=(f"Analysis {analysis_id} has a region row with no ELT/PLT "
                          "classification."),
                 analysis_ids=(analysis_id,),
@@ -898,7 +903,7 @@ def _region_facts(
 
         if not engine or not peril or not region:
             report(GroupingProblem(
-                code=GroupingProblemCode.MEMBER_METADATA_MISSING.value,
+                code=GroupingProblemCode.REGION_ROW_METADATA_MISSING.value,
                 message=(f"Analysis {analysis_id} has a region row missing engine, "
                          "peril, or region metadata."),
                 analysis_ids=(analysis_id,),
@@ -988,7 +993,7 @@ def _region_facts(
 class GroupingManager:
     """Inspect analysis members and submit resolved grouping requests."""
 
-    FINGERPRINT_VERSION = 8
+    FINGERPRINT_VERSION = 9
 
     LOSS_AFFECTING_TREATY_FIELDS = (
         "cedant",

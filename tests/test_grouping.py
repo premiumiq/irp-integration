@@ -1723,7 +1723,7 @@ def test_malformed_region_row_blocks(raw_region, detail_overrides):
 
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    assert "member_metadata_missing" in {p.code for p in inspection.blocking_problems}
+    assert "region_row_metadata_missing" in {p.code for p in inspection.blocking_problems}
 
 
 def test_region_framework_conflicting_with_the_detail_blocks():
