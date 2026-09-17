@@ -78,6 +78,52 @@ def region(
     }
 
 
+def multi_peril_group(analysis_id: int) -> Dict[str, Any]:
+    """Build one multi-peril group detail: perilCode YY, peril "Multi-Peril"."""
+    return {
+        "analysisId": analysis_id,
+        "analysisFramework": "ELT",
+        "engineType": "Group",
+        "engineVersion": "RL25",
+        "groupType": "CDGP",
+        "isGroup": False,
+        "peril": "Multi-Peril",
+        "perilCode": "YY",
+        "region": "North Atlantic (including Hawaii)",
+        "regionCode": "NA",
+    }
+
+
+def multi_peril_regions(analysis_id: int) -> List[Dict[str, Any]]:
+    """Build one Earthquake and one Windstorm region row carrying display names."""
+    return [
+        {
+            "analysisId": analysis_id,
+            "framework": "ELT",
+            "engineVersion": "RL25",
+            "peril": "Earthquake",
+            "region": "NA",
+            "subRegion": "CA",
+            "eventRateSchemeId": 103,
+            "petId": 0,
+            "periods": 0,
+            "applyContractFlag": False,
+        },
+        {
+            "analysisId": analysis_id,
+            "framework": "ELT",
+            "engineVersion": "RL25",
+            "peril": "Windstorm",
+            "region": "NA",
+            "subRegion": "FL",
+            "eventRateSchemeId": 101,
+            "petId": 0,
+            "periods": 0,
+            "applyContractFlag": False,
+        },
+    ]
+
+
 class FakeAnalysisManager:
     """Return mutable analysis, region, and treaty fixtures by exact ID."""
 
@@ -126,10 +172,18 @@ class FakeReferenceDataManager:
                 "modelRegionCode": "NAWS",
                 "modelVersionCode": "11.0",
             },
+            {
+                "eventRateSchemeId": 103,
+                "eventRateSchemeName": "Time-Independent",
+                "perilCode": "EQ",
+                "modelRegionCode": "NAEQ",
+                "modelVersionCode": "17.0",
+            },
         ]
         self.pet_metadata = [
             {
                 "id": 50,
+                "perilCode": "WF",
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
@@ -137,6 +191,7 @@ class FakeReferenceDataManager:
             },
             {
                 "id": 51,
+                "perilCode": "WF",
                 "modelRegionCode": "NAWF",
                 "modelVersionCode": "2.0",
                 "numberOfPeriods": 100000,
@@ -144,19 +199,21 @@ class FakeReferenceDataManager:
             },
             {
                 "id": 60,
+                "perilCode": "EQ",
                 "modelRegionCode": "USEQ",
                 "modelVersionCode": "23.0",
                 "numberOfPeriods": 50000,
             },
-            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.0",
-             "petName": f"{TYPHOON_PET_NAME} v2.0"},
-            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.0",
-             "petName": f"{NON_TYPHOON_PET_NAME} v2.0"},
-            {"id": 15, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
-             "petName": TYPHOON_PET_NAME},
-            {"id": 16, "modelRegionCode": "JPWS", "modelVersionCode": "2.1",
-             "petName": NON_TYPHOON_PET_NAME},
+            {"id": 15, "perilCode": "WS", "modelRegionCode": "JPWS",
+             "modelVersionCode": "2.0", "petName": f"{TYPHOON_PET_NAME} v2.0"},
+            {"id": 16, "perilCode": "WS", "modelRegionCode": "JPWS",
+             "modelVersionCode": "2.0", "petName": f"{NON_TYPHOON_PET_NAME} v2.0"},
+            {"id": 15, "perilCode": "WS", "modelRegionCode": "JPWS",
+             "modelVersionCode": "2.1", "petName": TYPHOON_PET_NAME},
+            {"id": 16, "perilCode": "WS", "modelRegionCode": "JPWS",
+             "modelVersionCode": "2.1", "petName": NON_TYPHOON_PET_NAME},
         ]
+        self.event_rate_scheme_total: Any = None
         self.pet_metadata_error: Optional[IRPAPIError] = None
         self.pet_metadata_calls: List[Dict[str, Any]] = []
         self.simulation_sets = [
@@ -174,15 +231,34 @@ class FakeReferenceDataManager:
         self.model_version_error: Optional[IRPAPIError] = None
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
-        """Return the fixture scheme list in the Platform's envelope."""
-        return {"items": self.event_rate_schemes}
+        """Return the fixture scheme list in the Platform's envelope.
+
+        ``totalCount`` reports the row count unless a test overrides it with
+        ``event_rate_scheme_total``, which stands in for a server-side cap or
+        for a ``totalCount`` the response restated in another shape.
+        """
+        total = self.event_rate_scheme_total
+        return {
+            "items": self.event_rate_schemes,
+            "totalCount": len(self.event_rate_schemes) if total is None else total,
+        }
 
     def get_model_version_by_engine_region_peril(
         self, engine_version: str, region_code: str, peril_code: str
     ) -> str:
-        """Return the exact fixture model version."""
+        """Return the exact fixture model version.
+
+        ``SoftwareModelVersionMap`` carries no row for a peril display name or
+        for the multi-peril code ``YY``, so an unmapped peril raises here the
+        way the reference read does rather than returning a version for it.
+        """
         if self.model_version_error:
             raise self.model_version_error
+        if peril_code not in {"EQ", "WF", "WS"}:
+            raise IRPAPIError(
+                f"No model version mapping found for {engine_version}, "
+                f"{region_code}, {peril_code}"
+            )
         if engine_version in {"RL23", "RL25"} and region_code == "NA":
             if peril_code == "EQ":
                 return "17.0"
@@ -190,6 +266,10 @@ class FakeReferenceDataManager:
         if region_code == "US" and peril_code == "EQ":
             return "23.0"
         return "2.1" if engine_version == "HDv2.1" else "2.0"
+
+    def get_all_pet_metadata(self) -> List[Dict[str, Any]]:
+        """Return every PET fixture row."""
+        return list(self.pet_metadata)
 
     def get_pet_metadata_by_id(self, pet_id: int) -> Dict[str, Any]:
         """Preserve strict lookup behavior in the test double."""
@@ -749,6 +829,113 @@ def test_display_name_region_rows_resolve_to_the_detail_codes():
         (option.event_rate_scheme_id, option.label)
         for option in result.partitions[0].event_rate_scheme_options
     ] == [(101, "Historical"), (102, "Stochastic")]
+
+
+def test_truncated_event_rate_scheme_read_raises():
+    """Raise when the reference read returns fewer rows than its totalCount.
+
+    The endpoint applies no default page size today, so a short list means the
+    server capped the read and the peril and model-region comparisons would be
+    made against part of the table."""
+    manager, _, reference = make_manager(*pure_elt_fixtures())
+    reference.event_rate_scheme_total = len(reference.event_rate_schemes) + 1
+
+    with pytest.raises(IRPAPIError, match=r"Event-rate scheme search returned \d+ of \d+ rows"):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+@pytest.mark.parametrize("restate", [str, float])
+def test_truncated_event_rate_scheme_read_raises_on_a_restated_total(restate):
+    """Catch a short read whether totalCount is an int, a string or a float.
+
+    ``_positive_int`` requires ``isinstance(value, int)``, so a ``totalCount``
+    of ``"151"`` or ``151.0`` would switch the guard off — a changed response
+    shape is exactly the case where a short read would go unnoticed."""
+    manager, _, reference = make_manager(*pure_elt_fixtures())
+    reference.event_rate_scheme_total = restate(
+        len(reference.event_rate_schemes) + 1
+    )
+
+    with pytest.raises(IRPAPIError, match=r"Event-rate scheme search returned \d+ of \d+ rows"):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+def test_event_rate_scheme_total_that_is_not_a_row_count_raises():
+    """Raise rather than skipping the truncation guard on an unreadable total."""
+    manager, _, reference = make_manager(*pure_elt_fixtures())
+    reference.event_rate_scheme_total = {}
+
+    with pytest.raises(IRPAPIError, match="totalCount that is not a row count"):
+        manager.inspect(analysis_ids=[1, 2])
+
+
+def test_multi_peril_group_members_partition_by_the_peril_their_schemes_name():
+    """A multi-peril group's detail carries perilCode YY and peril "Multi-Peril"
+    while its region rows carry "Earthquake" and "Windstorm". YY is RMS ALL
+    PERILS and is not in SoftwareModelVersionMap, so the peril code has to come
+    from each row's eventRateSchemeId."""
+    details = {1: multi_peril_group(1), 2: multi_peril_group(2)}
+    regions = {1: multi_peril_regions(1), 2: multi_peril_regions(2)}
+    manager, _, _ = make_manager(details, regions, post=True)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+    result = submit(manager, inspection)
+
+    assert inspection.blocking_problems == ()
+    assert [member.is_group for member in inspection.members] == [True, True]
+    assert {partition.key for partition in inspection.partitions} == {
+        GroupingPartitionKey("EQ", "NA", "17.0"),
+        GroupingPartitionKey("WS", "NA", "11.0"),
+    }
+    assert {
+        (fact.peril_code, fact.model_region_code)
+        for member in inspection.members
+        for fact in member.regions
+    } == {("EQ", "CAEQ"), ("WS", "FLWS")}
+    assert result.job_id == 7001
+
+
+def test_multi_peril_row_resolving_to_no_peril_code_blocks():
+    """Block the row whose IDs resolve no peril code: peril "Multi-Peril" falls
+    back to the detail's YY, and no model-version mapping carries YY."""
+    details = {1: multi_peril_group(1), 2: multi_peril_group(2)}
+    regions = {
+        1: [dict(multi_peril_regions(1)[0], eventRateSchemeId=0, peril="Multi-Peril")],
+        2: multi_peril_regions(2),
+    }
+    manager, _, _ = make_manager(details, regions)
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert [problem.code for problem in inspection.blocking_problems] == [
+        "model_version_mapping_missing"
+    ]
+    assert inspection.members[0].regions == ()
+
+
+def test_row_peril_is_used_when_the_scheme_model_region_names_another_peril():
+    """A scheme registered under a modelRegionCode whose peril the row does not
+    carry must not drop the row. Scheme 104 names NACS, so the derived peril is
+    CS and no SoftwareModelVersionMap row carries RL23/NA/CS; the row's own
+    perilCode WS resolves 11.0 and is the peril the fact keeps."""
+    details = {1: analysis(1), 2: analysis(2)}
+    regions = {1: [region(1, scheme_id=104)], 2: [region(2)]}
+    manager, _, reference = make_manager(details, regions)
+    reference.event_rate_schemes.append({
+        "eventRateSchemeId": 104,
+        "eventRateSchemeName": "Convective Storm Stochastic",
+        "perilCode": "CS",
+        "modelRegionCode": "NACS",
+        "modelVersionCode": "5.0",
+    })
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert inspection.blocking_problems == ()
+    assert [
+        (fact.peril_code, fact.model_region_code, fact.model_version)
+        for fact in inspection.members[0].regions
+    ] == [("WS", "FLWS", "11.0")]
 
 
 def test_each_offered_scheme_is_named_from_reference_data():
@@ -1408,6 +1595,26 @@ def test_model_version_cardinality_problem_is_structured(message, code):
     assert code in {p.code for p in inspection.blocking_problems}
 
 
+def test_each_dropped_region_row_names_its_own_sub_region():
+    """Report one problem per sub-region rather than one for the analysis.
+
+    ``_deduplicate_problems`` keys on ``sub_regions``, so region rows that fail
+    the model-version lookup identically no longer collapse to one problem
+    naming whichever sub-region happened to be last."""
+    details, regions = pure_elt_fixtures()
+    regions[1] = [region(1, sub_region=code) for code in ("AL", "CT", "D1")]
+    manager, _, reference_data = make_manager(details, regions)
+    reference_data.model_version_error = IRPAPIError("No model version mapping found")
+
+    inspection = manager.inspect(analysis_ids=[1, 2])
+
+    assert [
+        problem.sub_regions for problem in inspection.blocking_problems
+        if problem.code == "model_version_mapping_missing"
+        and problem.analysis_ids == (1,)
+    ] == [("AL",), ("CT",), ("D1",)]
+
+
 def test_fingerprint_ignores_irrelevant_region_response_order():
     """Normalize region rows before computing the concurrency fingerprint."""
     details, regions = pure_elt_fixtures()
@@ -1516,7 +1723,7 @@ def test_malformed_region_row_blocks(raw_region, detail_overrides):
 
     inspection = manager.inspect(analysis_ids=[1, 2])
 
-    assert "member_metadata_missing" in {p.code for p in inspection.blocking_problems}
+    assert "region_row_metadata_missing" in {p.code for p in inspection.blocking_problems}
 
 
 def test_region_framework_conflicting_with_the_detail_blocks():

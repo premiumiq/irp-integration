@@ -7,7 +7,8 @@ Handles portfolio analysis submission, job tracking, and result retrieval.
 import json
 import logging
 import time
-from typing import Dict, List, Any, Optional, Tuple, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Dict, List, Any, Mapping, Optional, Tuple, TYPE_CHECKING
 from .analysis_validation import (
     analysis_type_for_software_version,
     validate_event_rate_scheme_settings,
@@ -22,6 +23,17 @@ from .constants import (
     CREATE_EXPORT_JOB
 )
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
+from .grouping import (
+    GroupingManager,
+    GroupingProblem,
+    GroupingProblemCode,
+    GroupingRegionFact,
+    _is_group,
+    _positive_int,
+    _ReferenceLookups,
+    _region_facts,
+    _text,
+)
 from .validators import validate_non_empty_string, validate_positive_int, validate_list_not_empty
 from .utils import extract_id_from_location_header, paginate_search
 
@@ -33,6 +45,66 @@ if TYPE_CHECKING:
     from .portfolio import PortfolioManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class AppliedTreaty:
+    """One treaty as applied to one analysis, with the name Risk Modeler shows.
+
+    ``terms`` are the analysis-level loss-affecting values, normalized the way
+    ``GroupingManager`` normalizes them for its treaty comparison: what the
+    analysis ran with, not the EDM treaty definition. An analysis run in CAD
+    against a treaty defined in USD reports CAD.
+
+    ``treaty_number`` is None for a treaty carrying no ``treatyNumber``. The
+    treaty is still reported, and ``RunDescription.problems`` carries a
+    ``treaty_number_missing`` problem naming its ``treatyId``.
+
+    ``terms`` is a ``Dict``, so ``AppliedTreaty`` is not hashable despite
+    ``frozen=True``, and its contents stay mutable.
+    """
+
+    treaty_id: Optional[int]
+    treaty_number: Optional[str]
+    treaty_name: Optional[str]
+    terms: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RunDescription:
+    """What one analysis ran with: regions, event-rate scheme names, treaties.
+
+    ``regions`` holds one ``GroupingRegionFact`` per region row the Platform
+    returned, uncollapsed: a windstorm analysis covering 23 sub-regions reports
+    23 regions. A row whose framework, engine, peril, region, or model version
+    did not resolve is absent from ``regions`` and reported in ``problems``.
+
+    ``regions`` and ``problems`` do not partition the rows, so do not reconcile
+    ``len(regions) + len(problems)`` against the Platform's row count. A row
+    that is kept is still reported when it raises ``pet_id_missing``,
+    ``pet_periods_missing``, ``apply_contract_flag_unsupported`` or
+    ``event_rate_scheme_missing``, and one row can raise more than one of them.
+    ``GroupingProblem.sub_regions`` names the row a row-level problem concerns.
+    A ``treaty_number_missing`` problem concerns no row at all.
+
+    ``event_rate_scheme_names`` names every ``event_rate_scheme_id`` in
+    ``regions`` that an active Risk Modeler event-rate scheme row resolves; an
+    ID no active row carries is absent.
+
+    ``event_rate_scheme_names`` is a ``Mapping``, so ``RunDescription`` is not
+    hashable despite ``frozen=True`` and its contents stay mutable. That is the
+    existing pattern here rather than something ``describe_run`` introduced:
+    ``GroupingTreaty.terms`` is a ``Dict``, so ``GroupingTreaty`` and any
+    ``GroupingProblem`` carrying one are unhashable too.
+    """
+
+    analysis_id: int
+    is_group: bool
+    regions: Tuple[GroupingRegionFact, ...]
+    event_rate_scheme_names: Mapping[int, str]
+    treaties: Tuple[AppliedTreaty, ...]
+    problems: Tuple[GroupingProblem, ...]
+
 
 class AnalysisManager:
     """Manager for analysis operations."""
@@ -985,6 +1057,112 @@ class AnalysisManager:
                 offset=offset
             ),
             f"Treaty search for analysis ID {analysis_id}"
+        )
+
+    def describe_run(self, analysis_id: int) -> RunDescription:
+        """
+        Describe what one analysis ran with.
+
+        Reads the analysis detail, its region rows, and its treaties, and names
+        each region's event-rate scheme from the active Risk Modeler reference
+        rows. Regions are normalized the way ``GroupingManager.inspect``
+        normalizes them. A region row names its peril as a display name, so its
+        peril code is the row's own ``perilCode`` resolved against the detail,
+        then the detail's ``perilCode``, and failing both the
+        ``modelRegionCode`` of the ``eventratescheme`` row its
+        ``eventRateSchemeId`` names or the ``PETMetadata`` row its ``petId``
+        names, with the region code stripped off the front. A PLT region's
+        ``petId`` is then named through the ``PETMetadata`` row for the
+        region's model version, since PET ID 12 exists under more than one
+        model version with a different ``petName``. A ``petId`` no
+        ``PETMetadata`` row qualifies keeps its ID and periods and reports
+        ``pet_name`` None.
+
+        A region row that does not normalize is reported in ``problems``
+        rather than raised on: one unresolved sub-region does not make the rest
+        of an otherwise readable analysis unavailable. A treaty carrying no
+        ``treatyNumber`` is reported the same way, as a
+        ``treaty_number_missing`` problem naming its ``treatyId``, and is
+        returned in ``treaties`` with ``treaty_number`` None.
+
+        Args:
+            analysis_id: Analysis ID
+
+        Returns:
+            ``RunDescription`` with the region facts, the problems found in the
+            rows left out of them, the event-rate scheme names those regions
+            carry, and the treaties applied to the analysis
+
+        Raises:
+            IRPValidationError: If analysis_id is invalid
+            IRPAPIError: If the analysis, region, treaty, or event-rate scheme
+                reference read fails, if the analysis detail is empty or is
+                not an object, or if the region or treaty search returns a
+                non-list response. A failed ``PETMetadata`` read does not
+                raise: the rows fall back to their own ``perilCode``.
+        """
+        validate_positive_int(analysis_id, "analysis_id")
+
+        analysis = self.get_analysis_by_id(analysis_id)
+        if not isinstance(analysis, Mapping) or not analysis:
+            raise IRPAPIError(f"Analysis {analysis_id} returned no analysis details")
+        lookups = _ReferenceLookups(self._irp)
+
+        raw_regions = self.get_regions(analysis_id)
+        if not isinstance(raw_regions, list):
+            raise IRPAPIError(
+                f"Region search for analysis ID {analysis_id} returned a non-list response"
+            )
+        problems: List[GroupingProblem] = []
+        regions, _ = _region_facts(
+            analysis_id, analysis, raw_regions, lookups, problems.append
+        )
+
+        scheme_names: Dict[int, str] = {}
+        for fact in regions:
+            scheme_id = fact.event_rate_scheme_id
+            if scheme_id is None or scheme_id in scheme_names:
+                continue
+            name = lookups.scheme_name(scheme_id)
+            if name is not None:
+                scheme_names[scheme_id] = name
+
+        raw_treaties = self.search_analysis_treaties_paginated(analysis_id)
+        if not isinstance(raw_treaties, list):
+            raise IRPAPIError(
+                f"Treaty search for analysis ID {analysis_id} returned a non-list response"
+            )
+        treaties: List[AppliedTreaty] = []
+        for treaty in raw_treaties:
+            if not isinstance(treaty, Mapping):
+                raise IRPAPIError(
+                    f"Treaty search for analysis ID {analysis_id} returned a malformed treaty"
+                )
+            treaty_value = treaty.get("treatyId")
+            treaty_id = int(treaty_value) if _positive_int(treaty_value) else None
+            treaty_number = _text(treaty.get("treatyNumber"))
+            if treaty_number is None:
+                problems.append(GroupingProblem(
+                    code=GroupingProblemCode.TREATY_NUMBER_MISSING.value,
+                    message=(f"Treaty for analysis ID {analysis_id} has no "
+                             "Treaty Number."),
+                    analysis_ids=(analysis_id,),
+                    treaty_ids=(treaty_id,) if treaty_id is not None else (),
+                ))
+            treaties.append(AppliedTreaty(
+                treaty_id=treaty_id,
+                treaty_number=treaty_number,
+                treaty_name=_text(treaty.get("treatyName")),
+                terms=GroupingManager._loss_affecting_treaty_terms(treaty),
+            ))
+
+        return RunDescription(
+            analysis_id=analysis_id,
+            is_group=_is_group(analysis),
+            regions=tuple(regions),
+            event_rate_scheme_names=scheme_names,
+            treaties=tuple(treaties),
+            problems=tuple(problems),
         )
 
     def submit_analysis_export_job(
