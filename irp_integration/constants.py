@@ -15,6 +15,9 @@ Defines:
       endpoints accept as ``perspectiveCode``. See ``analysis.py`` for how
       ``get_elt()``, ``get_ep()``, ``get_stats()``, and ``get_plt()`` validate
       against it.
+    - ``EXPOSURE_RESOURCE_TYPES``: the values the same endpoints accept as
+      ``exposureResourceType``; the four getters validate their
+      ``exposure_resource_type`` keyword against it.
 """
 
 # Auth endpoints
@@ -134,6 +137,10 @@ PERSPECTIVE_CODES = [
     'RL', 'RN', 'RP', 'SS', 'TE', 'TG', 'TN', 'TV',
     'TY', 'UC', 'VA', 'VL', 'VP', 'VT', 'VY', 'WX',
 ]
+
+# Exposure resource types the analysis result endpoints accept as
+# exposureResourceType. TREATY scopes the result to one treaty of the run.
+EXPOSURE_RESOURCE_TYPES = ['PORTFOLIO', 'TREATY']
 
 GET_MODEL_PROFILES = '/analysis-settings/modelprofiles'
 GET_OUTPUT_PROFILES = '/analysis-settings/outputprofiles'

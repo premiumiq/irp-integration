@@ -2080,7 +2080,9 @@ def get_elt(
     exposure_resource_id: int,
     filter: Optional[str] = None,
     limit: Optional[int] = None,
-    offset: Optional[int] = None
+    offset: Optional[int] = None,
+    *,
+    exposure_resource_type: str = 'PORTFOLIO'
 ) -> List[Dict[str, Any]]
 ```
 
@@ -2091,7 +2093,12 @@ Retrieve Event Loss Table (ELT) for an analysis.
  - **perspective_code:**  Risk Modeler financial perspective code
    (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
    in constants.py for the full set.
- - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
+ - **exposure_resource_id:**  Exposure resource ID: the analysis's portfolio ID
+   when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+   search_analysis_treaties when it is 'TREATY'
+ - **exposure_resource_type:**  'PORTFOLIO' (default) or 'TREATY'. See
+   EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+   loss at the perspective answers an empty list.
  - **filter:**  Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
  - **limit:**  Optional maximum number of records to return
  - **offset:**  Optional number of records to skip (for pagination)
@@ -2110,7 +2117,9 @@ def get_ep(
     self,
     analysis_id: int,
     perspective_code: str,
-    exposure_resource_id: int
+    exposure_resource_id: int,
+    *,
+    exposure_resource_type: str = 'PORTFOLIO'
 ) -> List[Dict[str, Any]]
 ```
 
@@ -2121,7 +2130,12 @@ Retrieve EP (Exceedance Probability) metrics for an analysis.
  - **perspective_code:**  Risk Modeler financial perspective code
    (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
    in constants.py for the full set.
- - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
+ - **exposure_resource_id:**  Exposure resource ID: the analysis's portfolio ID
+   when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+   search_analysis_treaties when it is 'TREATY'
+ - **exposure_resource_type:**  'PORTFOLIO' (default) or 'TREATY'. See
+   EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+   loss at the perspective answers an empty list.
 
 **Returns:**
 > List of EP curve data (OEP, AEP, CEP, TCE curves)
@@ -2137,7 +2151,9 @@ def get_stats(
     self,
     analysis_id: int,
     perspective_code: str,
-    exposure_resource_id: int
+    exposure_resource_id: int,
+    *,
+    exposure_resource_type: str = 'PORTFOLIO'
 ) -> List[Dict[str, Any]]
 ```
 
@@ -2148,7 +2164,12 @@ Retrieve statistics for an analysis.
  - **perspective_code:**  Risk Modeler financial perspective code
    (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
    in constants.py for the full set.
- - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
+ - **exposure_resource_id:**  Exposure resource ID: the analysis's portfolio ID
+   when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+   search_analysis_treaties when it is 'TREATY'
+ - **exposure_resource_type:**  'PORTFOLIO' (default) or 'TREATY'. See
+   EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+   loss at the perspective answers an empty list.
 
 **Returns:**
 > List of statistical metrics
@@ -2167,7 +2188,9 @@ def get_plt(
     exposure_resource_id: int,
     filter: Optional[str] = None,
     limit: Optional[int] = None,
-    offset: Optional[int] = None
+    offset: Optional[int] = None,
+    *,
+    exposure_resource_type: str = 'PORTFOLIO'
 ) -> List[Dict[str, Any]]
 ```
 
@@ -2180,7 +2203,12 @@ Note: PLT is only available for HD (High Definition) analyses.
  - **perspective_code:**  Risk Modeler financial perspective code
    (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
    in constants.py for the full set.
- - **exposure_resource_id:**  Exposure resource ID (portfolio ID from analysis)
+ - **exposure_resource_id:**  Exposure resource ID: the analysis's portfolio ID
+   when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+   search_analysis_treaties when it is 'TREATY'
+ - **exposure_resource_type:**  'PORTFOLIO' (default) or 'TREATY'. See
+   EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+   loss at the perspective answers an empty list.
  - **filter:**  Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
  - **limit:**  Optional maximum number of records to return (default: 100000)
  - **offset:**  Optional number of records to skip (for pagination)
@@ -5085,5 +5113,6 @@ API endpoint constants and status/code maps for the Risk Modeler API.
 - Workflow status groupings: ``WORKFLOW_COMPLETED_STATUSES`` (terminal) and ``WORKFLOW_IN_PROGRESS_STATUSES`` (non-terminal). See ``client.py`` for how these drive polling and the terminal-status contract.
 - Code maps that translate human-readable names to the short API codes: ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, and ``TREATY_ATTACHMENT_LEVELS``.
 - ``PERSPECTIVE_CODES``: the financial perspective codes the analysis result endpoints accept as ``perspectiveCode``. See ``analysis.py`` for how ``get_elt()``, ``get_ep()``, ``get_stats()``, and ``get_plt()`` validate against it.
+- ``EXPOSURE_RESOURCE_TYPES``: the values the same endpoints accept as ``exposureResourceType``; the four getters validate their ``exposure_resource_type`` keyword against it.
 
 ---
