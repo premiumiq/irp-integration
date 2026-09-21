@@ -20,6 +20,7 @@ from .constants import (
     WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES,
     GET_ANALYSIS_ELT, GET_ANALYSIS_EP, GET_ANALYSIS_STATS, GET_ANALYSIS_PLT,
     GET_ANALYSIS_REGIONS, GET_ANALYSIS_TREATIES, PERSPECTIVE_CODES,
+    EXPOSURE_RESOURCE_TYPES,
     CREATE_EXPORT_JOB
 )
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
@@ -749,6 +750,15 @@ class AnalysisManager:
                 "irp_integration/constants.py"
             )
 
+    def _validate_exposure_resource_type(self, exposure_resource_type: str) -> None:
+        """Validate exposure resource type is one of the allowed values."""
+        if exposure_resource_type not in EXPOSURE_RESOURCE_TYPES:
+            raise IRPValidationError(
+                f"Invalid exposure_resource_type '{exposure_resource_type}'. "
+                "Not in the list of valid exposure resource types; see "
+                "EXPOSURE_RESOURCE_TYPES in irp_integration/constants.py"
+            )
+
     def get_elt(
         self,
         analysis_id: int,
@@ -756,7 +766,9 @@ class AnalysisManager:
         exposure_resource_id: int,
         filter: Optional[str] = None,
         limit: Optional[int] = None,
-        offset: Optional[int] = None
+        offset: Optional[int] = None,
+        *,
+        exposure_resource_type: str = 'PORTFOLIO'
     ) -> List[Dict[str, Any]]:
         """
         Retrieve Event Loss Table (ELT) for an analysis.
@@ -766,7 +778,12 @@ class AnalysisManager:
             perspective_code: Risk Modeler financial perspective code
                 (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
                 in constants.py for the full set.
-            exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
+            exposure_resource_id: Exposure resource ID: the analysis's portfolio ID
+                when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+                search_analysis_treaties when it is 'TREATY'
+            exposure_resource_type: 'PORTFOLIO' (default) or 'TREATY'. See
+                EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+                loss at the perspective answers an empty list.
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return
             offset: Optional number of records to skip (for pagination)
@@ -780,10 +797,11 @@ class AnalysisManager:
         """
         validate_positive_int(analysis_id, "analysis_id")
         self._validate_perspective_code(perspective_code)
+        self._validate_exposure_resource_type(exposure_resource_type)
 
         params = {
             'perspectiveCode': perspective_code,
-            'exposureResourceType': 'PORTFOLIO',
+            'exposureResourceType': exposure_resource_type,
             'exposureResourceId': exposure_resource_id
         }
 
@@ -808,7 +826,9 @@ class AnalysisManager:
         self,
         analysis_id: int,
         perspective_code: str,
-        exposure_resource_id: int
+        exposure_resource_id: int,
+        *,
+        exposure_resource_type: str = 'PORTFOLIO'
     ) -> List[Dict[str, Any]]:
         """
         Retrieve EP (Exceedance Probability) metrics for an analysis.
@@ -818,7 +838,12 @@ class AnalysisManager:
             perspective_code: Risk Modeler financial perspective code
                 (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
                 in constants.py for the full set.
-            exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
+            exposure_resource_id: Exposure resource ID: the analysis's portfolio ID
+                when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+                search_analysis_treaties when it is 'TREATY'
+            exposure_resource_type: 'PORTFOLIO' (default) or 'TREATY'. See
+                EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+                loss at the perspective answers an empty list.
 
         Returns:
             List of EP curve data (OEP, AEP, CEP, TCE curves)
@@ -829,10 +854,11 @@ class AnalysisManager:
         """
         validate_positive_int(analysis_id, "analysis_id")
         self._validate_perspective_code(perspective_code)
+        self._validate_exposure_resource_type(exposure_resource_type)
 
         params = {
             'perspectiveCode': perspective_code,
-            'exposureResourceType': 'PORTFOLIO',
+            'exposureResourceType': exposure_resource_type,
             'exposureResourceId': exposure_resource_id
         }
 
@@ -850,7 +876,9 @@ class AnalysisManager:
         self,
         analysis_id: int,
         perspective_code: str,
-        exposure_resource_id: int
+        exposure_resource_id: int,
+        *,
+        exposure_resource_type: str = 'PORTFOLIO'
     ) -> List[Dict[str, Any]]:
         """
         Retrieve statistics for an analysis.
@@ -860,7 +888,12 @@ class AnalysisManager:
             perspective_code: Risk Modeler financial perspective code
                 (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
                 in constants.py for the full set.
-            exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
+            exposure_resource_id: Exposure resource ID: the analysis's portfolio ID
+                when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+                search_analysis_treaties when it is 'TREATY'
+            exposure_resource_type: 'PORTFOLIO' (default) or 'TREATY'. See
+                EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+                loss at the perspective answers an empty list.
 
         Returns:
             List of statistical metrics
@@ -871,10 +904,11 @@ class AnalysisManager:
         """
         validate_positive_int(analysis_id, "analysis_id")
         self._validate_perspective_code(perspective_code)
+        self._validate_exposure_resource_type(exposure_resource_type)
 
         params = {
             'perspectiveCode': perspective_code,
-            'exposureResourceType': 'PORTFOLIO',
+            'exposureResourceType': exposure_resource_type,
             'exposureResourceId': exposure_resource_id
         }
 
@@ -895,7 +929,9 @@ class AnalysisManager:
         exposure_resource_id: int,
         filter: Optional[str] = None,
         limit: Optional[int] = None,
-        offset: Optional[int] = None
+        offset: Optional[int] = None,
+        *,
+        exposure_resource_type: str = 'PORTFOLIO'
     ) -> List[Dict[str, Any]]:
         """
         Retrieve Period Loss Table (PLT) for an analysis.
@@ -907,7 +943,12 @@ class AnalysisManager:
             perspective_code: Risk Modeler financial perspective code
                 (e.g. 'GU', 'GR', 'RL', 'WX', 'QS'). See PERSPECTIVE_CODES
                 in constants.py for the full set.
-            exposure_resource_id: Exposure resource ID (portfolio ID from analysis)
+            exposure_resource_id: Exposure resource ID: the analysis's portfolio ID
+                when exposure_resource_type is 'PORTFOLIO', or one treaty ID from
+                search_analysis_treaties when it is 'TREATY'
+            exposure_resource_type: 'PORTFOLIO' (default) or 'TREATY'. See
+                EXPOSURE_RESOURCE_TYPES in constants.py. A treaty that took no
+                loss at the perspective answers an empty list.
             filter: Optional filter string (e.g., "eventId IN (1, 2, 3)" or "eventId = 123")
             limit: Optional maximum number of records to return (default: 100000)
             offset: Optional number of records to skip (for pagination)
@@ -921,10 +962,11 @@ class AnalysisManager:
         """
         validate_positive_int(analysis_id, "analysis_id")
         self._validate_perspective_code(perspective_code)
+        self._validate_exposure_resource_type(exposure_resource_type)
 
         params = {
             'perspectiveCode': perspective_code,
-            'exposureResourceType': 'PORTFOLIO',
+            'exposureResourceType': exposure_resource_type,
             'exposureResourceId': exposure_resource_id,
             'limit': limit if limit is not None else 100000
         }
