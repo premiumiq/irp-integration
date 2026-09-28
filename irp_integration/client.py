@@ -41,9 +41,12 @@ Auth/config:
           construction to obtain a short-lived (1-hour) bearer token and
           sends ``Authorization: Bearer {accessToken}``.
 
-    Requests made with ``full_url`` use the same authenticated session. Export
-    result downloads therefore send the configured ``Authorization`` header
-    and use the session retry policy.
+    Requests made with ``full_url`` use the same session and retry policy. A
+    ``None`` value in ``headers`` removes that session header from one request.
+    Export result downloads send the configured ``Authorization`` header,
+    except when ``downloadUrl`` is a presigned S3 URL (it has an
+    ``X-Amz-Signature`` query parameter). For a presigned URL the download
+    removes ``Authorization`` and ``x-rms-resource-group-id``.
 
     The API key takes precedence when both option sets are present.
     Bearer tokens are refreshed reactively: a ``401`` triggers a single
@@ -56,7 +59,7 @@ import logging
 import requests
 import time
 import os
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Mapping, Optional, Union
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from .constants import  GET_WORKFLOWS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, GET_WORKFLOW_BY_ID
@@ -240,7 +243,7 @@ class Client:
         base_url: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
         json: Optional[Union[Dict[str, Any], List[Any]]] = None,
-        headers: Dict[str, str] = {},
+        headers: Mapping[str, Optional[str]] = {},
         timeout: Optional[int] = None,
         stream: bool = False
     ) -> requests.Response:
@@ -255,7 +258,8 @@ class Client:
             base_url: Base URL (overrides default if provided)
             params: Query parameters
             json: JSON request body
-            headers: Additional headers
+            headers: Additional headers. A ``None`` value removes that session
+                header, such as ``Authorization``, from this request.
             timeout: Request timeout in seconds
             stream: Enable streaming response
 

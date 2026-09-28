@@ -10,8 +10,8 @@ import os
 import tempfile
 import time
 import zipfile
-from typing import Dict, Any, TYPE_CHECKING
-from urllib.parse import unquote, urlparse
+from typing import Dict, Any, Optional, TYPE_CHECKING
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import requests
 
@@ -128,9 +128,14 @@ class ExportJobManager:
         Download exported analysis results for a completed export job.
 
         Fetches the job, extracts ``downloadUrl`` from the ``DOWNLOAD_RESULTS``
-        task, and uses the authenticated client session to stream the ZIP file
-        to the output directory. The completed download replaces an existing
-        file with the same decoded filename only after the ZIP is validated.
+        task, and uses the client session to stream the ZIP file to the output
+        directory. The request sends the session ``Authorization`` header,
+        except when ``downloadUrl`` has an ``X-Amz-Signature`` query parameter
+        (matched case-insensitively). That presigned S3 URL carries its own
+        signature, so the request removes ``Authorization`` and
+        ``x-rms-resource-group-id``. The completed download replaces an
+        existing file with the same decoded filename only after the ZIP is
+        validated.
 
         Args:
             job_id: Export job ID (must be FINISHED)
@@ -169,8 +174,24 @@ class ExportJobManager:
         if not download_url:
             raise IRPAPIError(f"No download URL found in export job {job_id}")
 
+        parsed_url = urlparse(download_url)
+
+        # S3 rejects a presigned URL request that also carries the Risk Modeler
+        # headers with 400 InvalidArgument, so remove them from the session
+        # headers for this request only.
+        query_names = {
+            name.lower()
+            for name, _ in parse_qsl(parsed_url.query, keep_blank_values=True)
+        }
+        download_headers: Dict[str, Optional[str]] = {}
+        if 'x-amz-signature' in query_names:
+            download_headers = {
+                'Authorization': None,
+                'x-rms-resource-group-id': None,
+            }
+
         # Extract filename from URL path (e.g., "{analysisId}_{portfolioName}_Losses.zip")
-        url_path = unquote(urlparse(download_url).path)
+        url_path = unquote(parsed_url.path)
         filename = os.path.basename(url_path)
         if not filename:
             raise IRPAPIError(
@@ -195,6 +216,7 @@ class ExportJobManager:
                     'GET',
                     '',
                     full_url=download_url,
+                    headers=download_headers,
                     stream=True,
                     timeout=300,
                 )

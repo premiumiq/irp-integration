@@ -1,8 +1,9 @@
 """
-Tests for authenticated export-result downloads.
+Tests for export-result downloads.
 
 The download response and export job response are queued on one fake client so
-the tests can assert that ``downloadUrl`` goes through the same client session.
+the tests can assert that ``downloadUrl`` goes through the same client session,
+and which session headers a presigned S3 ``downloadUrl`` removes.
 All ZIP files are created in memory and every test runs without network access.
 """
 
@@ -145,10 +146,72 @@ def test_valid_download_uses_authenticated_client_and_decoded_filename(tmp_path)
         'method': 'GET',
         'path': '',
         'full_url': DOWNLOAD_URL,
+        'headers': {},
         'stream': True,
         'timeout': 300,
     }
     assert download_response.closed
+
+
+def zip_download_response() -> DownloadResponse:
+    """Return a streamed response carrying a valid ZIP archive."""
+    data = zip_bytes()
+    return DownloadResponse(
+        chunks=[data],
+        headers={
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': str(len(data)),
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    'signature_name',
+    ['X-Amz-Signature', 'x-amz-signature', 'X-AMZ-SIGNATURE'],
+)
+def test_presigned_s3_download_removes_risk_modeler_headers(tmp_path, signature_name):
+    presigned_url = (
+        "https://bucket.s3.example.invalid/exports/Example%20Losses.zip"
+        "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=test"
+        "&X-Amz-Date=20260101T000000Z&X-Amz-Expires=3600"
+        f"&X-Amz-SignedHeaders=host&{signature_name}=test"
+    )
+    manager, client = make_manager(
+        DownloadResponse(json_body=finished_job(download_url=presigned_url)),
+        zip_download_response(),
+    )
+
+    result = manager.download_export_results(JOB_ID, str(tmp_path))
+
+    assert result == str(tmp_path / DECODED_FILENAME)
+    assert client.calls[1]['full_url'] == presigned_url
+    assert client.calls[1]['headers'] == {
+        'Authorization': None,
+        'x-rms-resource-group-id': None,
+    }
+    assert client.calls[1]['stream'] is True
+    assert client.calls[1]['timeout'] == 300
+
+
+@pytest.mark.parametrize(
+    'download_url',
+    [
+        DOWNLOAD_URL,
+        "https://d111111abcdef8.cloudfront.example.invalid/exports/"
+        "Example%20Losses.zip?Expires=1767225600&Signature=test&Key-Pair-Id=test",
+        "https://downloads.example.invalid/exports/Example%20Losses.zip",
+    ],
+)
+def test_non_presigned_download_keeps_session_headers(tmp_path, download_url):
+    manager, client = make_manager(
+        DownloadResponse(json_body=finished_job(download_url=download_url)),
+        zip_download_response(),
+    )
+
+    manager.download_export_results(JOB_ID, str(tmp_path))
+
+    assert client.calls[1]['full_url'] == download_url
+    assert client.calls[1]['headers'] == {}
 
 
 @pytest.mark.parametrize(
