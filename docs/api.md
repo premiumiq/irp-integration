@@ -121,7 +121,7 @@ The API base URL (``RISK_MODELER_BASE_URL``) and resource group (``RISK_MODELER_
 - **API key** (default / preserves existing behavior): if ``RISK_MODELER_API_KEY`` is set, it is sent verbatim in the ``Authorization`` header.
 - **Bearer login**: if the API key is absent but ``RISK_MODELER_TENANT_NAME``, ``RISK_MODELER_USERNAME``, and ``RISK_MODELER_PASSWORD`` are all set, the client logs in at construction to obtain a short-lived (1-hour) bearer token and sends ``Authorization: Bearer {accessToken}``.
 
-Requests made with ``full_url`` use the same session and retry policy. A ``None`` value in ``headers`` removes that session header from one request. Export result downloads send the configured ``Authorization`` header, except when ``downloadUrl`` is a presigned S3 URL (it has an ``X-Amz-Signature`` query parameter). For a presigned URL the download removes ``Authorization`` and ``x-rms-resource-group-id``.
+Requests made with ``full_url`` use the same authenticated session and retry policy. Export result downloads from a presigned S3 URL omit ``Authorization`` and ``x-rms-resource-group-id``.
 
 The API key takes precedence when both option sets are present. Bearer tokens are refreshed reactively: a ``401`` triggers a single re-login with the stored credentials and one retry of the request. ``__init__`` raises if neither complete option set is configured.
 
@@ -192,8 +192,7 @@ Make HTTP request to API.
  - **base_url:**  Base URL (overrides default if provided)
  - **params:**  Query parameters
  - **json:**  JSON request body
- - **headers:**  Additional headers. A ``None`` value removes that session
-   header, such as ``Authorization``, from this request.
+ - **headers:**  Additional headers; ``None`` removes a session header
  - **timeout:**  Request timeout in seconds
  - **stream:**  Enable streaming response
 
@@ -3549,14 +3548,12 @@ def download_export_results(self, job_id: int, output_dir: str) -> str
 Download exported analysis results for a completed export job.
 
 Fetches the job, extracts ``downloadUrl`` from the ``DOWNLOAD_RESULTS``
-task, and uses the client session to stream the ZIP file to the output
-directory. The request sends the session ``Authorization`` header,
-except when ``downloadUrl`` has an ``X-Amz-Signature`` query parameter
-(matched case-insensitively). That presigned S3 URL carries its own
-signature, so the request removes ``Authorization`` and
-``x-rms-resource-group-id``. The completed download replaces an
-existing file with the same decoded filename only after the ZIP is
-validated.
+task, and uses the authenticated client session to stream the ZIP file
+to the output directory. A presigned S3 ``downloadUrl`` (one with an
+``X-Amz-Signature`` query parameter) is requested without
+``Authorization`` and ``x-rms-resource-group-id``. The completed
+download replaces an existing file with the same decoded filename only
+after the ZIP is validated.
 
 **Arguments:**
  - **job_id:**  Export job ID (must be FINISHED)

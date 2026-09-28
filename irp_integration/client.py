@@ -41,12 +41,9 @@ Auth/config:
           construction to obtain a short-lived (1-hour) bearer token and
           sends ``Authorization: Bearer {accessToken}``.
 
-    Requests made with ``full_url`` use the same session and retry policy. A
-    ``None`` value in ``headers`` removes that session header from one request.
-    Export result downloads send the configured ``Authorization`` header,
-    except when ``downloadUrl`` is a presigned S3 URL (it has an
-    ``X-Amz-Signature`` query parameter). For a presigned URL the download
-    removes ``Authorization`` and ``x-rms-resource-group-id``.
+    Requests made with ``full_url`` use the same authenticated session and
+    retry policy. Export result downloads from a presigned S3 URL omit
+    ``Authorization`` and ``x-rms-resource-group-id``.
 
     The API key takes precedence when both option sets are present.
     Bearer tokens are refreshed reactively: a ``401`` triggers a single
@@ -204,7 +201,7 @@ class Client:
                     "username": self._username,
                     "password": self._password,
                 },
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "Authorization": None},  # type: ignore[dict-item]
                 timeout=self.timeout,
             )
         except requests.RequestException as e:
@@ -258,8 +255,7 @@ class Client:
             base_url: Base URL (overrides default if provided)
             params: Query parameters
             json: JSON request body
-            headers: Additional headers. A ``None`` value removes that session
-                header, such as ``Authorization``, from this request.
+            headers: Additional headers; ``None`` removes a session header
             timeout: Request timeout in seconds
             stream: Enable streaming response
 
@@ -292,9 +288,7 @@ class Client:
                     url=url,
                     params=params,
                     json=json,
-                    # requests removes a session header whose per-request
-                    # value is None, but its HeadersType hint omits None.
-                    headers=headers,  # type: ignore[arg-type]
+                    headers=headers,  # type: ignore[arg-type]  # requests' hints omit None
                     timeout=timeout or self.timeout,
                     stream=stream,
                 )

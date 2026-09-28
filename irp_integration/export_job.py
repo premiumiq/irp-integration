@@ -128,14 +128,12 @@ class ExportJobManager:
         Download exported analysis results for a completed export job.
 
         Fetches the job, extracts ``downloadUrl`` from the ``DOWNLOAD_RESULTS``
-        task, and uses the client session to stream the ZIP file to the output
-        directory. The request sends the session ``Authorization`` header,
-        except when ``downloadUrl`` has an ``X-Amz-Signature`` query parameter
-        (matched case-insensitively). That presigned S3 URL carries its own
-        signature, so the request removes ``Authorization`` and
-        ``x-rms-resource-group-id``. The completed download replaces an
-        existing file with the same decoded filename only after the ZIP is
-        validated.
+        task, and uses the authenticated client session to stream the ZIP file
+        to the output directory. A presigned S3 ``downloadUrl`` (one with an
+        ``X-Amz-Signature`` query parameter) is requested without
+        ``Authorization`` and ``x-rms-resource-group-id``. The completed
+        download replaces an existing file with the same decoded filename only
+        after the ZIP is validated.
 
         Args:
             job_id: Export job ID (must be FINISHED)
@@ -176,19 +174,11 @@ class ExportJobManager:
 
         parsed_url = urlparse(download_url)
 
-        # S3 rejects a presigned URL request that also carries the Risk Modeler
-        # headers with 400 InvalidArgument, so remove them from the session
-        # headers for this request only.
-        query_names = {
-            name.lower()
-            for name, _ in parse_qsl(parsed_url.query, keep_blank_values=True)
-        }
+        # S3 returns 400 InvalidArgument when a presigned request also sends these headers.
+        query_names = {name.lower() for name, _ in parse_qsl(parsed_url.query)}
         download_headers: Dict[str, Optional[str]] = {}
         if 'x-amz-signature' in query_names:
-            download_headers = {
-                'Authorization': None,
-                'x-rms-resource-group-id': None,
-            }
+            download_headers = {'Authorization': None, 'x-rms-resource-group-id': None}
 
         # Extract filename from URL path (e.g., "{analysisId}_{portfolioName}_Losses.zip")
         url_path = unquote(parsed_url.path)
