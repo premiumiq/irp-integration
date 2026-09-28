@@ -196,8 +196,9 @@ the retry still fails, the error propagates. There is no proactive expiry
 tracking.
 
 `client.export_job.download_export_results()` sends the configured
-`Authorization` header when it requests the export job's `downloadUrl`. The
-download also uses the client's retry policy.
+`Authorization` header when it requests the export job's `downloadUrl`, unless
+`downloadUrl` is a presigned S3 URL. The download also uses the client's retry
+policy.
 
 ### Data Bridge Configuration
 

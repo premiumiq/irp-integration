@@ -41,9 +41,9 @@ Auth/config:
           construction to obtain a short-lived (1-hour) bearer token and
           sends ``Authorization: Bearer {accessToken}``.
 
-    Requests made with ``full_url`` use the same authenticated session. Export
-    result downloads therefore send the configured ``Authorization`` header
-    and use the session retry policy.
+    Requests made with ``full_url`` use the same authenticated session and
+    retry policy. Export result downloads from a presigned S3 URL omit
+    ``Authorization`` and ``x-rms-resource-group-id``.
 
     The API key takes precedence when both option sets are present.
     Bearer tokens are refreshed reactively: a ``401`` triggers a single
@@ -56,7 +56,7 @@ import logging
 import requests
 import time
 import os
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Mapping, Optional, Union
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
 from .constants import  GET_WORKFLOWS, WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES, GET_WORKFLOW_BY_ID
@@ -201,7 +201,7 @@ class Client:
                     "username": self._username,
                     "password": self._password,
                 },
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "Authorization": None},  # type: ignore[dict-item]
                 timeout=self.timeout,
             )
         except requests.RequestException as e:
@@ -240,7 +240,7 @@ class Client:
         base_url: Optional[str] = None,
         params: Optional[Dict[str, Any]] = None,
         json: Optional[Union[Dict[str, Any], List[Any]]] = None,
-        headers: Dict[str, str] = {},
+        headers: Mapping[str, Optional[str]] = {},
         timeout: Optional[int] = None,
         stream: bool = False
     ) -> requests.Response:
@@ -255,7 +255,7 @@ class Client:
             base_url: Base URL (overrides default if provided)
             params: Query parameters
             json: JSON request body
-            headers: Additional headers
+            headers: Additional headers; ``None`` removes a session header
             timeout: Request timeout in seconds
             stream: Enable streaming response
 
@@ -288,7 +288,7 @@ class Client:
                     url=url,
                     params=params,
                     json=json,
-                    headers=headers,
+                    headers=headers,  # type: ignore[arg-type]  # requests' hints omit None
                     timeout=timeout or self.timeout,
                     stream=stream,
                 )

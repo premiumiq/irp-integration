@@ -10,8 +10,8 @@ import os
 import tempfile
 import time
 import zipfile
-from typing import Dict, Any, TYPE_CHECKING
-from urllib.parse import unquote, urlparse
+from typing import Dict, Any, Optional, TYPE_CHECKING
+from urllib.parse import parse_qsl, unquote, urlparse
 
 import requests
 
@@ -129,8 +129,11 @@ class ExportJobManager:
 
         Fetches the job, extracts ``downloadUrl`` from the ``DOWNLOAD_RESULTS``
         task, and uses the authenticated client session to stream the ZIP file
-        to the output directory. The completed download replaces an existing
-        file with the same decoded filename only after the ZIP is validated.
+        to the output directory. A presigned S3 ``downloadUrl`` (one with an
+        ``X-Amz-Signature`` query parameter) is requested without
+        ``Authorization`` and ``x-rms-resource-group-id``. The completed
+        download replaces an existing file with the same decoded filename only
+        after the ZIP is validated.
 
         Args:
             job_id: Export job ID (must be FINISHED)
@@ -169,8 +172,16 @@ class ExportJobManager:
         if not download_url:
             raise IRPAPIError(f"No download URL found in export job {job_id}")
 
+        parsed_url = urlparse(download_url)
+
+        # S3 returns 400 InvalidArgument when a presigned request also sends these headers.
+        query_names = {name.lower() for name, _ in parse_qsl(parsed_url.query)}
+        download_headers: Dict[str, Optional[str]] = {}
+        if 'x-amz-signature' in query_names:
+            download_headers = {'Authorization': None, 'x-rms-resource-group-id': None}
+
         # Extract filename from URL path (e.g., "{analysisId}_{portfolioName}_Losses.zip")
-        url_path = unquote(urlparse(download_url).path)
+        url_path = unquote(parsed_url.path)
         filename = os.path.basename(url_path)
         if not filename:
             raise IRPAPIError(
@@ -195,6 +206,7 @@ class ExportJobManager:
                     'GET',
                     '',
                     full_url=download_url,
+                    headers=download_headers,
                     stream=True,
                     timeout=300,
                 )

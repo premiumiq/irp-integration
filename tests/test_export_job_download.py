@@ -145,10 +145,39 @@ def test_valid_download_uses_authenticated_client_and_decoded_filename(tmp_path)
         'method': 'GET',
         'path': '',
         'full_url': DOWNLOAD_URL,
+        'headers': {},
         'stream': True,
         'timeout': 300,
     }
     assert download_response.closed
+
+
+@pytest.mark.parametrize('name', ['X-Amz-Signature', 'x-amz-signature'])
+def test_presigned_s3_download_removes_risk_modeler_headers(tmp_path, name):
+    url = f"https://bucket.s3.example.invalid/Example%20Losses.zip?{name}=test"
+    manager, client = make_manager(
+        DownloadResponse(json_body=finished_job(download_url=url)),
+        DownloadResponse(chunks=[zip_bytes()]),
+    )
+
+    manager.download_export_results(JOB_ID, str(tmp_path))
+
+    assert client.calls[1]['headers'] == {
+        'Authorization': None,
+        'x-rms-resource-group-id': None,
+    }
+
+
+def test_cloudfront_download_keeps_session_headers(tmp_path):
+    url = "https://cdn.example.invalid/Example%20Losses.zip?Signature=test&Key-Pair-Id=test"
+    manager, client = make_manager(
+        DownloadResponse(json_body=finished_job(download_url=url)),
+        DownloadResponse(chunks=[zip_bytes()]),
+    )
+
+    manager.download_export_results(JOB_ID, str(tmp_path))
+
+    assert client.calls[1]['headers'] == {}
 
 
 @pytest.mark.parametrize(
