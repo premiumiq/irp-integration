@@ -196,8 +196,11 @@ the retry still fails, the error propagates. There is no proactive expiry
 tracking.
 
 `client.export_job.download_export_results()` sends the configured
-`Authorization` header when it requests the export job's `downloadUrl`. The
-download also uses the client's retry policy.
+`Authorization` header when it requests the export job's `downloadUrl`. When
+`downloadUrl` is a presigned S3 URL (it has an `X-Amz-Signature` query
+parameter), the download removes `Authorization` and `x-rms-resource-group-id`,
+because S3 rejects a presigned request that also carries those headers with
+`400 InvalidArgument`. The download also uses the client's retry policy.
 
 ### Data Bridge Configuration
 
