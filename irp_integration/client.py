@@ -292,7 +292,9 @@ class Client:
                     url=url,
                     params=params,
                     json=json,
-                    headers=headers,
+                    # requests removes a session header whose per-request
+                    # value is None, but its HeadersType hint omits None.
+                    headers=headers,  # type: ignore[arg-type]
                     timeout=timeout or self.timeout,
                     stream=stream,
                 )
