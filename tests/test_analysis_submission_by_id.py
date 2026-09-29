@@ -6,7 +6,8 @@ profile and event rate scheme passes ``model_profile_id``, ``output_profile_id``
 ``event_rate_scheme_id`` and ``analysis_type`` instead of the three names. The
 method then posts the ids as given and makes no reference-data request. The
 name path is the only source of ``softwareVersionCode``, so on the id path the
-job ``type`` has to be stated as ``analysis_type``.
+job ``type`` has to be stated as ``analysis_type``. A ``'DLM'`` job needs
+``event_rate_scheme_id``, as the name path needs ``event_rate_scheme_name``.
 
 Names and ids are all-or-nothing: mixing them raises before any request is
 made. The name-path rules are covered in ``test_analysis_submission.py`` and
@@ -113,6 +114,40 @@ def test_model_profile_id_without_analysis_type_raises(make_analysis_manager, re
         )
 
     assert client.calls == [], "validation must fail before any request is made"
+
+
+def test_dlm_without_event_rate_scheme_id_raises(make_analysis_manager, response):
+    manager, client, _ = make_manager(make_analysis_manager, response)
+
+    with pytest.raises(IRPValidationError, match="event_rate_scheme_id.*DLM"):
+        manager.submit_portfolio_analysis_job(
+            edm_name=EDM_NAME,
+            portfolio_name=PORTFOLIO_NAME,
+            job_name=JOB_NAME,
+            model_profile_id=MODEL_PROFILE_ID,
+            output_profile_id=OUTPUT_PROFILE_ID,
+            analysis_type="DLM",
+        )
+
+    assert client.calls == [], "validation must fail before any request is made"
+
+
+def test_hd_without_event_rate_scheme_id_posts_no_scheme(make_analysis_manager, response):
+    manager, client, _ = make_manager(make_analysis_manager, response)
+
+    _, request_body = manager.submit_portfolio_analysis_job(
+        edm_name=EDM_NAME,
+        portfolio_name=PORTFOLIO_NAME,
+        job_name=JOB_NAME,
+        currency=CURRENCY,
+        model_profile_id=MODEL_PROFILE_ID,
+        output_profile_id=OUTPUT_PROFILE_ID,
+        analysis_type="HD",
+    )
+
+    assert request_body["type"] == "HD"
+    assert "eventRateSchemeId" not in request_body["settings"]
+    assert client.calls[-1]["path"] == CREATE_ANALYSIS_JOB
 
 
 def test_mixing_names_and_ids_raises(make_analysis_manager, response):

@@ -54,7 +54,9 @@ client.analysis.submit_portfolio_analysis_job(
 
 A caller that already holds the Risk Modeler ids passes them in place of the
 profile and scheme names. No reference-data request is made, so the job `type`
-has to be given as `analysis_type`. Names and ids cannot be mixed in one call.
+has to be given as `analysis_type`. A `'DLM'` job requires
+`event_rate_scheme_id`; an `'HD'` job may omit it. Names and ids cannot be
+mixed in one call.
 
 ```python
 client.analysis.submit_portfolio_analysis_job(

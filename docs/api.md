@@ -1831,7 +1831,7 @@ Risk Modeler id. The two are all-or-nothing per dict, as for
 
    - model_profile_id: int
    - output_profile_id: int
-   - event_rate_scheme_id: int, optional
+   - event_rate_scheme_id: int, required for ``'DLM'``, optional for ``'HD'``
    - analysis_type: str, ``'DLM'`` or ``'HD'``
 
 **Returns:**
@@ -1839,8 +1839,9 @@ Risk Modeler id. The two are all-or-nothing per dict, as for
 
 **Raises:**
  - **IRPValidationError:**  If analysis_data_list is empty, if a dict mixes
-   names with ids, or if a dict gives neither the profile names
-   nor the profile ids and analysis_type
+   names with ids, if a dict gives neither the profile names
+   nor the profile ids and analysis_type, or if a dict gives
+   analysis_type 'DLM' without event_rate_scheme_id
  - **IRPAPIError:**  If analysis submission fails, duplicate analysis names
    exist, or a dict is missing edm_name, portfolio_name or job_name
 
@@ -1878,8 +1879,8 @@ method resolves each name through ``reference_data`` and derives the job
 ``type`` from the model profile's ``softwareVersionCode``. On the id path
 it posts ``model_profile_id``, ``output_profile_id`` and
 ``event_rate_scheme_id`` as given with ``analysis_type`` as the job
-``type``; no reference-data request is made and the DLM-requires-scheme
-and peril/region checks do not run.
+``type``; no reference-data request is made and the peril/region check
+does not run. A ``'DLM'`` job still requires ``event_rate_scheme_id``.
 
 A name-path argument is any of ``analysis_profile_name``,
 ``output_profile_name`` or ``event_rate_scheme_name`` that is not
@@ -1911,7 +1912,8 @@ event rate scheme" is expressed by leaving ``event_rate_scheme_id`` as
  - **model_profile_id:**  Id path. Model profile id, posted as ``modelProfileId``
  - **output_profile_id:**  Id path. Output profile id, posted as ``outputProfileId``
  - **event_rate_scheme_id:**  Id path. Event rate scheme id, posted as
-   ``eventRateSchemeId`` when given
+   ``eventRateSchemeId`` when given. Required when ``analysis_type``
+   is ``'DLM'``, optional for ``'HD'``
  - **analysis_type:**  Id path. Job ``type``, ``'DLM'`` or ``'HD'``; see
    ANALYSIS_TYPES in constants.py. Required with ``model_profile_id``
 
@@ -1922,7 +1924,9 @@ event rate scheme" is expressed by leaving ``event_rate_scheme_id`` as
  - **IRPValidationError:**  If inputs are invalid; if name-path and id-path
    arguments are mixed; if neither the two profile names nor
    ``model_profile_id``, ``output_profile_id`` and ``analysis_type``
-   are given; or if ``analysis_type`` is not in ANALYSIS_TYPES
+   are given; if ``analysis_type`` is not in ANALYSIS_TYPES; or if
+   ``analysis_type`` is ``'DLM'`` and ``event_rate_scheme_id`` is
+   ``None``
  - **IRPAPIError:**  If request fails or EDM/portfolio not found
  - **IRPReferenceDataError:**  Name path only. If a profile, tag, or event
    rate scheme cannot be resolved; if the model profile is DLM and
