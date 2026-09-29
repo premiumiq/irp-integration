@@ -50,6 +50,24 @@ client.analysis.submit_portfolio_analysis_job(
 )
 ```
 
+### Submit by id
+
+A caller that already holds the Risk Modeler ids passes them in place of the
+profile and scheme names. No reference-data request is made, so the job `type`
+has to be given as `analysis_type`. Names and ids cannot be mixed in one call.
+
+```python
+client.analysis.submit_portfolio_analysis_job(
+    edm_name=edm_name,
+    portfolio_name=portfolio_name,
+    job_name="Readme Analysis by id",
+    model_profile_id=123,
+    output_profile_id=45,
+    event_rate_scheme_id=678,
+    analysis_type='HD',
+)
+```
+
 ### Analysis grouping
 
 Grouping uses a two-step contract. Inspect exact Platform analysis IDs first,

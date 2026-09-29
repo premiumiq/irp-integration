@@ -166,4 +166,8 @@ def test_batch_defaults_missing_treaty_and_tag_names(
         "treaty_names": [],
         "tag_names": [],
         "skip_duplicate_check": True,
+        "model_profile_id": None,
+        "output_profile_id": None,
+        "event_rate_scheme_id": None,
+        "analysis_type": None,
     }

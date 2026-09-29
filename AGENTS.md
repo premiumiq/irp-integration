@@ -26,6 +26,9 @@ authoritative guidance travels in the source itself — this file only points at
   than assuming success.
 - **Names resolve to IDs** — high-level methods accept human-readable names (EDM,
   portfolio, profile, treaty) and look up the IDs internally.
+  `submit_portfolio_analysis_job()` also accepts `model_profile_id`,
+  `output_profile_id`, `event_rate_scheme_id` and `analysis_type` in place of
+  the profile and scheme names.
 
 ## Conventions & checks
 
