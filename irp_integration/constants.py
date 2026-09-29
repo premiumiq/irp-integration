@@ -18,6 +18,9 @@ Defines:
     - ``EXPOSURE_RESOURCE_TYPES``: the values the same endpoints accept as
       ``exposureResourceType``; the four getters validate their
       ``exposure_resource_type`` keyword against it.
+    - ``ANALYSIS_TYPES``: the values ``CREATE_ANALYSIS_JOB`` accepts as the job
+      ``type``; ``submit_portfolio_analysis_job()`` validates its
+      ``analysis_type`` keyword against it.
 """
 
 # Auth endpoints
@@ -141,6 +144,9 @@ PERSPECTIVE_CODES = [
 # Exposure resource types the analysis result endpoints accept as
 # exposureResourceType. TREATY scopes the result to one treaty of the run.
 EXPOSURE_RESOURCE_TYPES = ['PORTFOLIO', 'TREATY']
+
+# Analysis job types posted as the `type` field of CREATE_ANALYSIS_JOB
+ANALYSIS_TYPES = ['DLM', 'HD']
 
 GET_MODEL_PROFILES = '/analysis-settings/modelprofiles'
 GET_OUTPUT_PROFILES = '/analysis-settings/outputprofiles'

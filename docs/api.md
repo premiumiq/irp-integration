@@ -10,7 +10,7 @@ The single entry point is ``IRPClient``, which holds one HTTP client and exposes
 
 edm, portfolio, mri_import, treaty, analysis, grouping, risk_data_job, rdm, import_job, export_job, reference_data, and (optional) databridge.
 
-Name-based interface: high-level methods accept human-readable names (EDM names, portfolio names, profile names, treaty names) and resolve them to IDs internally.
+Name-based interface: high-level methods accept human-readable names (EDM names, portfolio names, profile names, treaty names) and resolve them to IDs internally. ``analysis.submit_portfolio_analysis_job`` also accepts ``model_profile_id``, ``output_profile_id``, ``event_rate_scheme_id`` and ``analysis_type`` in place of the profile and scheme names.
 
 S3 transfers for import/export staging are handled transparently by the relevant managers — there is no need to hand-roll boto3.
 
@@ -1808,23 +1808,42 @@ def submit_portfolio_analysis_jobs(self, analysis_data_list: List[Dict[str, Any]
 
 Submit multiple portfolio analysis jobs.
 
+Each dict names the EDM, portfolio and job, then identifies the model
+profile, output profile and event rate scheme either by name or by
+Risk Modeler id. The two are all-or-nothing per dict, as for
+``submit_portfolio_analysis_job``.
+
 **Arguments:**
  - **analysis_data_list:**  List of analysis job data dicts, each containing:
    - edm_name: str
    - portfolio_name: str
    - job_name: str
-   - analysis_profile_name: str
-   - output_profile_name: str
-   - event_rate_scheme_name: str
    - treaty_names: List[str], optional (defaults to [])
    - tag_names: List[str], optional (defaults to [])
+
+   and, on the name path:
+
+   - analysis_profile_name: str
+   - output_profile_name: str
+   - event_rate_scheme_name: str, optional
+
+   or, on the id path:
+
+   - model_profile_id: int
+   - output_profile_id: int
+   - event_rate_scheme_id: int, required for ``'DLM'``, optional for ``'HD'``
+   - analysis_type: str, ``'DLM'`` or ``'HD'``
 
 **Returns:**
 > List of job IDs
 
 **Raises:**
- - **IRPValidationError:**  If analysis_data_list is empty or invalid
- - **IRPAPIError:**  If analysis submission fails or duplicate analysis names exist
+ - **IRPValidationError:**  If analysis_data_list is empty, if a dict mixes
+   names with ids, if a dict gives neither the profile names
+   nor the profile ids and analysis_type, or if a dict gives
+   analysis_type 'DLM' without event_rate_scheme_id
+ - **IRPAPIError:**  If analysis submission fails, duplicate analysis names
+   exist, or a dict is missing edm_name, portfolio_name or job_name
 
 #### `submit_portfolio_analysis_job`
 
@@ -1834,50 +1853,86 @@ def submit_portfolio_analysis_job(
     edm_name: str,
     portfolio_name: str,
     job_name: str,
-    analysis_profile_name: str,
-    output_profile_name: str,
-    event_rate_scheme_name: str,
-    treaty_names: List[str],
-    tag_names: List[str],
+    analysis_profile_name: Optional[str] = None,
+    output_profile_name: Optional[str] = None,
+    event_rate_scheme_name: Optional[str] = None,
+    treaty_names: Optional[List[str]] = None,
+    tag_names: Optional[List[str]] = None,
     currency: Optional[Dict[str, str]] = None,
     skip_duplicate_check: bool = False,
     franchise_deductible: bool = False,
     min_loss_threshold: float = 1.0,
     treat_construction_occupancy_as_unknown: bool = True,
-    num_max_loss_event: int = 1
+    num_max_loss_event: int = 1,
+    model_profile_id: Optional[int] = None,
+    output_profile_id: Optional[int] = None,
+    event_rate_scheme_id: Optional[int] = None,
+    analysis_type: Optional[str] = None
 ) -> Tuple[int, Dict[str, Any]]
 ```
 
 Submit portfolio analysis job (submits but doesn't wait).
 
+The model profile, output profile and event rate scheme are identified
+either by name or by Risk Modeler id, never both. On the name path the
+method resolves each name through ``reference_data`` and derives the job
+``type`` from the model profile's ``softwareVersionCode``. On the id path
+it posts ``model_profile_id``, ``output_profile_id`` and
+``event_rate_scheme_id`` as given with ``analysis_type`` as the job
+``type``; no reference-data request is made and the peril/region check
+does not run. A ``'DLM'`` job still requires ``event_rate_scheme_id``.
+
+A name-path argument is any of ``analysis_profile_name``,
+``output_profile_name`` or ``event_rate_scheme_name`` that is not
+``None``; ``event_rate_scheme_name=""`` counts. An id-path argument is
+any of ``model_profile_id``, ``output_profile_id``,
+``event_rate_scheme_id`` or ``analysis_type`` that is not ``None``.
+Giving both kinds raises ``IRPValidationError``. On the id path, "no
+event rate scheme" is expressed by leaving ``event_rate_scheme_id`` as
+``None``.
+
 **Arguments:**
  - **edm_name:**  Name of the EDM (exposure database)
  - **portfolio_name:**  Name of the portfolio to analyze
  - **job_name:**  Name for analysis job (must be unique)
- - **analysis_profile_name:**  Model profile name
- - **output_profile_name:**  Output profile name
- - **event_rate_scheme_name:**  Event rate scheme name (required for DLM, optional for HD)
- - **treaty_names:**  List of treaty names to apply. An empty list submits the
-   analysis with no treaties applied (treatyIds is sent as [])
- - **tag_names:**  List of tag names to apply. An empty list submits the analysis
-   with no tags applied (tagIds is sent as [])
+ - **analysis_profile_name:**  Name path. Model profile name
+ - **output_profile_name:**  Name path. Output profile name
+ - **event_rate_scheme_name:**  Name path. Event rate scheme name (required
+   for DLM, optional for HD)
+ - **treaty_names:**  List of treaty names to apply. ``None`` or an empty list
+   submits the analysis with no treaties applied (treatyIds is sent as [])
+ - **tag_names:**  List of tag names to apply. ``None`` or an empty list submits
+   the analysis with no tags applied (tagIds is sent as [])
  - **currency:**  Optional currency configuration
  - **skip_duplicate_check:**  Skip checking if analysis name already exists (for batch operations)
  - **franchise_deductible:**  Whether to apply franchise deductible (default: False)
- - **min_loss_threshold:**  Minimum loss threshold value (default: 0)
+ - **min_loss_threshold:**  Minimum loss threshold value (default: 1.0)
  - **treat_construction_occupancy_as_unknown:**  Treat construction/occupancy as unknown (default: True)
  - **num_max_loss_event:**  Number of max loss events to include (default: 1)
+ - **model_profile_id:**  Id path. Model profile id, posted as ``modelProfileId``
+ - **output_profile_id:**  Id path. Output profile id, posted as ``outputProfileId``
+ - **event_rate_scheme_id:**  Id path. Event rate scheme id, posted as
+   ``eventRateSchemeId`` when given. Required when ``analysis_type``
+   is ``'DLM'``, optional for ``'HD'``
+ - **analysis_type:**  Id path. Job ``type``, ``'DLM'`` or ``'HD'``; see
+   ANALYSIS_TYPES in constants.py. Required with ``model_profile_id``
 
 **Returns:**
 > Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
 **Raises:**
- - **IRPValidationError:**  If inputs are invalid
+ - **IRPValidationError:**  If inputs are invalid; if name-path and id-path
+   arguments are mixed; if neither the two profile names nor
+   ``model_profile_id``, ``output_profile_id`` and ``analysis_type``
+   are given; if ``analysis_type`` is not in ANALYSIS_TYPES; or if
+   ``analysis_type`` is ``'DLM'`` and ``event_rate_scheme_id`` is
+   ``None``
  - **IRPAPIError:**  If request fails or EDM/portfolio not found
- - **IRPReferenceDataError:**  If a profile, tag, or event rate scheme cannot
-   be resolved; if the model profile is DLM and no event rate scheme
-   name was given; or if the event rate scheme's perilCode and
-   modelRegionCode do not match the model profile's
+ - **IRPReferenceDataError:**  Name path only. If a profile, tag, or event
+   rate scheme cannot be resolved; if the model profile is DLM and
+   no event rate scheme name was given; or if the event rate
+   scheme's perilCode and modelRegionCode do not match the model
+   profile's
 
 #### `get_analysis_job`
 
@@ -5117,5 +5172,6 @@ API endpoint constants and status/code maps for the Risk Modeler API.
 - Code maps that translate human-readable names to the short API codes: ``TREATY_TYPES``, ``TREATY_ATTACHMENT_BASES``, and ``TREATY_ATTACHMENT_LEVELS``.
 - ``PERSPECTIVE_CODES``: the financial perspective codes the analysis result endpoints accept as ``perspectiveCode``. See ``analysis.py`` for how ``get_elt()``, ``get_ep()``, ``get_stats()``, and ``get_plt()`` validate against it.
 - ``EXPOSURE_RESOURCE_TYPES``: the values the same endpoints accept as ``exposureResourceType``; the four getters validate their ``exposure_resource_type`` keyword against it.
+- ``ANALYSIS_TYPES``: the values ``CREATE_ANALYSIS_JOB`` accepts as the job ``type``; ``submit_portfolio_analysis_job()`` validates its ``analysis_type`` keyword against it.
 
 ---

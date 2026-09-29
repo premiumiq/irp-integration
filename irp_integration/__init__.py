@@ -10,6 +10,9 @@ Managers (``client.<name>``):
 
 Name-based interface: high-level methods accept human-readable names (EDM names,
 portfolio names, profile names, treaty names) and resolve them to IDs internally.
+``analysis.submit_portfolio_analysis_job`` also accepts ``model_profile_id``,
+``output_profile_id``, ``event_rate_scheme_id`` and ``analysis_type`` in place
+of the profile and scheme names.
 
 S3 transfers for import/export staging are handled transparently by the relevant
 managers — there is no need to hand-roll boto3.

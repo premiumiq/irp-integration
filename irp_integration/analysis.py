@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Any, Mapping, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Any, Mapping, Optional, Tuple, TYPE_CHECKING, cast
 from .analysis_validation import (
     analysis_type_for_software_version,
     validate_event_rate_scheme_settings,
@@ -20,7 +20,7 @@ from .constants import (
     WORKFLOW_COMPLETED_STATUSES, WORKFLOW_IN_PROGRESS_STATUSES,
     GET_ANALYSIS_ELT, GET_ANALYSIS_EP, GET_ANALYSIS_STATS, GET_ANALYSIS_PLT,
     GET_ANALYSIS_REGIONS, GET_ANALYSIS_TREATIES, PERSPECTIVE_CODES,
-    EXPOSURE_RESOURCE_TYPES,
+    EXPOSURE_RESOURCE_TYPES, ANALYSIS_TYPES,
     CREATE_EXPORT_JOB
 )
 from .exceptions import IRPAPIError, IRPJobError, IRPReferenceDataError, IRPValidationError
@@ -167,23 +167,42 @@ class AnalysisManager:
         """
         Submit multiple portfolio analysis jobs.
 
+        Each dict names the EDM, portfolio and job, then identifies the model
+        profile, output profile and event rate scheme either by name or by
+        Risk Modeler id. The two are all-or-nothing per dict, as for
+        ``submit_portfolio_analysis_job``.
+
         Args:
             analysis_data_list: List of analysis job data dicts, each containing:
                 - edm_name: str
                 - portfolio_name: str
                 - job_name: str
-                - analysis_profile_name: str
-                - output_profile_name: str
-                - event_rate_scheme_name: str
                 - treaty_names: List[str], optional (defaults to [])
                 - tag_names: List[str], optional (defaults to [])
+
+                and, on the name path:
+
+                - analysis_profile_name: str
+                - output_profile_name: str
+                - event_rate_scheme_name: str, optional
+
+                or, on the id path:
+
+                - model_profile_id: int
+                - output_profile_id: int
+                - event_rate_scheme_id: int, required for ``'DLM'``, optional for ``'HD'``
+                - analysis_type: str, ``'DLM'`` or ``'HD'``
 
         Returns:
             List of job IDs
 
         Raises:
-            IRPValidationError: If analysis_data_list is empty or invalid
-            IRPAPIError: If analysis submission fails or duplicate analysis names exist
+            IRPValidationError: If analysis_data_list is empty, if a dict mixes
+                names with ids, if a dict gives neither the profile names
+                nor the profile ids and analysis_type, or if a dict gives
+                analysis_type 'DLM' without event_rate_scheme_id
+            IRPAPIError: If analysis submission fails, duplicate analysis names
+                exist, or a dict is missing edm_name, portfolio_name or job_name
         """
         validate_list_not_empty(analysis_data_list, "analysis_data_list")
 
@@ -202,12 +221,16 @@ class AnalysisManager:
                     edm_name=analysis_data['edm_name'],
                     portfolio_name=analysis_data['portfolio_name'],
                     job_name=analysis_data['job_name'],
-                    analysis_profile_name=analysis_data['analysis_profile_name'],
-                    output_profile_name=analysis_data['output_profile_name'],
-                    event_rate_scheme_name=analysis_data['event_rate_scheme_name'],
+                    analysis_profile_name=analysis_data.get('analysis_profile_name'),
+                    output_profile_name=analysis_data.get('output_profile_name'),
+                    event_rate_scheme_name=analysis_data.get('event_rate_scheme_name'),
                     treaty_names=analysis_data.get('treaty_names', []),
                     tag_names=analysis_data.get('tag_names', []),
-                    skip_duplicate_check=True  # Already validated above
+                    skip_duplicate_check=True,  # Already validated above
+                    model_profile_id=analysis_data.get('model_profile_id'),
+                    output_profile_id=analysis_data.get('output_profile_id'),
+                    event_rate_scheme_id=analysis_data.get('event_rate_scheme_id'),
+                    analysis_type=analysis_data.get('analysis_type'),
                 )
                 job_ids.append(job_id)
             except KeyError as e:
@@ -220,56 +243,149 @@ class AnalysisManager:
         edm_name: str,
         portfolio_name: str,
         job_name: str,
-        analysis_profile_name: str,
-        output_profile_name: str,
-        event_rate_scheme_name: str,
-        treaty_names: List[str],
-        tag_names: List[str],
+        analysis_profile_name: Optional[str] = None,
+        output_profile_name: Optional[str] = None,
+        event_rate_scheme_name: Optional[str] = None,
+        treaty_names: Optional[List[str]] = None,
+        tag_names: Optional[List[str]] = None,
         currency: Optional[Dict[str, str]] = None,
         skip_duplicate_check: bool = False,
         franchise_deductible: bool = False,
         min_loss_threshold: float = 1.0,
         treat_construction_occupancy_as_unknown: bool = True,
-        num_max_loss_event: int = 1
+        num_max_loss_event: int = 1,
+        model_profile_id: Optional[int] = None,
+        output_profile_id: Optional[int] = None,
+        event_rate_scheme_id: Optional[int] = None,
+        analysis_type: Optional[str] = None,
     ) -> Tuple[int, Dict[str, Any]]:
         """
         Submit portfolio analysis job (submits but doesn't wait).
+
+        The model profile, output profile and event rate scheme are identified
+        either by name or by Risk Modeler id, never both. On the name path the
+        method resolves each name through ``reference_data`` and derives the job
+        ``type`` from the model profile's ``softwareVersionCode``. On the id path
+        it posts ``model_profile_id``, ``output_profile_id`` and
+        ``event_rate_scheme_id`` as given with ``analysis_type`` as the job
+        ``type``; no reference-data request is made and the peril/region check
+        does not run. A ``'DLM'`` job still requires ``event_rate_scheme_id``.
+
+        A name-path argument is any of ``analysis_profile_name``,
+        ``output_profile_name`` or ``event_rate_scheme_name`` that is not
+        ``None``; ``event_rate_scheme_name=""`` counts. An id-path argument is
+        any of ``model_profile_id``, ``output_profile_id``,
+        ``event_rate_scheme_id`` or ``analysis_type`` that is not ``None``.
+        Giving both kinds raises ``IRPValidationError``. On the id path, "no
+        event rate scheme" is expressed by leaving ``event_rate_scheme_id`` as
+        ``None``.
 
         Args:
             edm_name: Name of the EDM (exposure database)
             portfolio_name: Name of the portfolio to analyze
             job_name: Name for analysis job (must be unique)
-            analysis_profile_name: Model profile name
-            output_profile_name: Output profile name
-            event_rate_scheme_name: Event rate scheme name (required for DLM, optional for HD)
-            treaty_names: List of treaty names to apply. An empty list submits the
-                analysis with no treaties applied (treatyIds is sent as [])
-            tag_names: List of tag names to apply. An empty list submits the analysis
-                with no tags applied (tagIds is sent as [])
+            analysis_profile_name: Name path. Model profile name
+            output_profile_name: Name path. Output profile name
+            event_rate_scheme_name: Name path. Event rate scheme name (required
+                for DLM, optional for HD)
+            treaty_names: List of treaty names to apply. ``None`` or an empty list
+                submits the analysis with no treaties applied (treatyIds is sent as [])
+            tag_names: List of tag names to apply. ``None`` or an empty list submits
+                the analysis with no tags applied (tagIds is sent as [])
             currency: Optional currency configuration
             skip_duplicate_check: Skip checking if analysis name already exists (for batch operations)
             franchise_deductible: Whether to apply franchise deductible (default: False)
-            min_loss_threshold: Minimum loss threshold value (default: 0)
+            min_loss_threshold: Minimum loss threshold value (default: 1.0)
             treat_construction_occupancy_as_unknown: Treat construction/occupancy as unknown (default: True)
             num_max_loss_event: Number of max loss events to include (default: 1)
+            model_profile_id: Id path. Model profile id, posted as ``modelProfileId``
+            output_profile_id: Id path. Output profile id, posted as ``outputProfileId``
+            event_rate_scheme_id: Id path. Event rate scheme id, posted as
+                ``eventRateSchemeId`` when given. Required when ``analysis_type``
+                is ``'DLM'``, optional for ``'HD'``
+            analysis_type: Id path. Job ``type``, ``'DLM'`` or ``'HD'``; see
+                ANALYSIS_TYPES in constants.py. Required with ``model_profile_id``
 
         Returns:
             Tuple of (job_id, request_body) where request_body is the HTTP request payload
 
         Raises:
-            IRPValidationError: If inputs are invalid
+            IRPValidationError: If inputs are invalid; if name-path and id-path
+                arguments are mixed; if neither the two profile names nor
+                ``model_profile_id``, ``output_profile_id`` and ``analysis_type``
+                are given; if ``analysis_type`` is not in ANALYSIS_TYPES; or if
+                ``analysis_type`` is ``'DLM'`` and ``event_rate_scheme_id`` is
+                ``None``
             IRPAPIError: If request fails or EDM/portfolio not found
-            IRPReferenceDataError: If a profile, tag, or event rate scheme cannot
-                be resolved; if the model profile is DLM and no event rate scheme
-                name was given; or if the event rate scheme's perilCode and
-                modelRegionCode do not match the model profile's
+            IRPReferenceDataError: Name path only. If a profile, tag, or event
+                rate scheme cannot be resolved; if the model profile is DLM and
+                no event rate scheme name was given; or if the event rate
+                scheme's perilCode and modelRegionCode do not match the model
+                profile's
         """
         validate_non_empty_string(edm_name, "edm_name")
         validate_non_empty_string(portfolio_name, "portfolio_name")
         validate_non_empty_string(job_name, "job_name")
-        validate_non_empty_string(analysis_profile_name, "analysis_profile_name")
-        validate_non_empty_string(output_profile_name, "output_profile_name")
-        # event_rate_scheme_name validation deferred - required for DLM but optional for HD
+
+        names_given = [
+            name for name, value in (
+                ("analysis_profile_name", analysis_profile_name),
+                ("output_profile_name", output_profile_name),
+                ("event_rate_scheme_name", event_rate_scheme_name),
+            ) if value is not None
+        ]
+        ids_given = [
+            name for name, value in (
+                ("model_profile_id", model_profile_id),
+                ("output_profile_id", output_profile_id),
+                ("event_rate_scheme_id", event_rate_scheme_id),
+                ("analysis_type", analysis_type),
+            ) if value is not None
+        ]
+        if names_given and ids_given:
+            raise IRPValidationError(
+                f"Cannot combine {', '.join(names_given)} with "
+                f"{', '.join(ids_given)}: identify the model profile, output "
+                "profile and event rate scheme either all by name or all by id"
+            )
+        if not names_given and not ids_given:
+            raise IRPValidationError(
+                "Either analysis_profile_name and output_profile_name, or "
+                "model_profile_id, output_profile_id and analysis_type, are required"
+            )
+
+        submit_by_id = bool(ids_given)
+        if submit_by_id:
+            missing = [
+                name for name, value in (
+                    ("model_profile_id", model_profile_id),
+                    ("output_profile_id", output_profile_id),
+                    ("analysis_type", analysis_type),
+                ) if value is None
+            ]
+            if missing:
+                raise IRPValidationError(
+                    "Submitting by id requires model_profile_id, output_profile_id "
+                    f"and analysis_type; missing {', '.join(missing)}"
+                )
+            validate_positive_int(model_profile_id, "model_profile_id")
+            validate_positive_int(output_profile_id, "output_profile_id")
+            if event_rate_scheme_id is not None:
+                validate_positive_int(event_rate_scheme_id, "event_rate_scheme_id")
+            job_type = self._validate_analysis_type(analysis_type)
+            if job_type == 'DLM' and event_rate_scheme_id is None:
+                raise IRPValidationError(
+                    "event_rate_scheme_id is required when analysis_type is 'DLM'"
+                )
+        else:
+            validate_non_empty_string(analysis_profile_name, "analysis_profile_name")
+            validate_non_empty_string(output_profile_name, "output_profile_name")
+            # event_rate_scheme_name validation deferred - required for DLM but optional for HD
+
+        if treaty_names is None:
+            treaty_names = []
+        if tag_names is None:
+            tag_names = []
 
         logger.info("Submitting analysis job '%s' for '%s'/'%s'", job_name, edm_name, portfolio_name)
 
@@ -327,69 +443,80 @@ class AnalysisManager:
         else:
             treaty_ids = []
 
-        # Look up reference data - model profile first to determine job type
-        model_profile_response = self.reference_data_manager.get_model_profile_by_name(analysis_profile_name)
-        output_profile_response = self.reference_data_manager.get_output_profile_by_name(output_profile_name)
-
-        if model_profile_response.get('count', 0) == 0:
-            raise IRPReferenceDataError(f"Analysis profile '{analysis_profile_name}' not found")
-        if len(output_profile_response) == 0:
-            raise IRPReferenceDataError(f"Output profile '{output_profile_name}' not found")
-
-        try:
-            model_profile = model_profile_response['items'][0]
-            model_profile_id = model_profile['id']
-            # Extract perilCode and modelRegionCode for event rate scheme lookup
-            model_peril_code = model_profile.get('perilCode')
-            model_region_code = model_profile.get('modelRegionCode')
-            software_version_code = model_profile['softwareVersionCode']
-            job_type = analysis_type_for_software_version(software_version_code)
-        except (KeyError, IndexError, TypeError) as e:
-            raise IRPReferenceDataError(
-                f"Failed to extract model profile ID for '{analysis_profile_name}': {e}"
-            ) from e
-
-        try:
-            output_profile_id = output_profile_response[0]['id']
-        except (KeyError, IndexError, TypeError) as e:
-            raise IRPReferenceDataError(
-                f"Failed to extract output profile ID for '{output_profile_name}': {e}"
-            ) from e
-
-        # Use perilCode and modelRegionCode from model profile to filter the correct event rate scheme
-        event_rate_scheme_id = None
-        scheme_peril_code = None
-        scheme_model_region_code = None
-        if event_rate_scheme_name:
-            event_rate_scheme_response = self.reference_data_manager.get_event_rate_scheme_by_name(
-                event_rate_scheme_name,
-                peril_code=model_peril_code,
-                model_region_code=model_region_code
+        if submit_by_id:
+            # No lookups. The DLM-requires-scheme rule ran at entry. The
+            # peril/region check needs the model profile's perilCode and
+            # modelRegionCode, which the id path never reads, so it does not run.
+            pass
+        else:
+            # Look up reference data - model profile first to determine job type.
+            # validate_non_empty_string above raised on None; the casts narrow for mypy.
+            model_profile_response = self.reference_data_manager.get_model_profile_by_name(
+                cast(str, analysis_profile_name)
             )
-            if event_rate_scheme_response.get('count', 0) == 0:
-                filter_info = f" (perilCode={model_peril_code}, modelRegionCode={model_region_code})" if model_peril_code or model_region_code else ""
-                raise IRPReferenceDataError(f"Event rate scheme '{event_rate_scheme_name}'{filter_info} not found")
+            output_profile_response = self.reference_data_manager.get_output_profile_by_name(
+                cast(str, output_profile_name)
+            )
+
+            if model_profile_response.get('count', 0) == 0:
+                raise IRPReferenceDataError(f"Analysis profile '{analysis_profile_name}' not found")
+            if len(output_profile_response) == 0:
+                raise IRPReferenceDataError(f"Output profile '{output_profile_name}' not found")
+
             try:
-                event_rate_scheme = event_rate_scheme_response['items'][0]
-                event_rate_scheme_id = event_rate_scheme['eventRateSchemeId']
-                scheme_peril_code = event_rate_scheme.get('perilCode')
-                scheme_model_region_code = event_rate_scheme.get('modelRegionCode')
+                model_profile = model_profile_response['items'][0]
+                model_profile_id = model_profile['id']
+                # Extract perilCode and modelRegionCode for event rate scheme lookup
+                model_peril_code = model_profile.get('perilCode')
+                model_region_code = model_profile.get('modelRegionCode')
+                software_version_code = model_profile['softwareVersionCode']
+                job_type = analysis_type_for_software_version(software_version_code)
             except (KeyError, IndexError, TypeError) as e:
                 raise IRPReferenceDataError(
-                    f"Failed to extract event rate scheme ID for '{event_rate_scheme_name}': {e}"
+                    f"Failed to extract model profile ID for '{analysis_profile_name}': {e}"
                 ) from e
 
-        # Event rate scheme is required for DLM analyses but optional for HD
-        validation_error = validate_event_rate_scheme_settings(
-            software_version_code,
-            scheme_provided=bool(event_rate_scheme_name),
-            profile_peril_code=model_peril_code,
-            profile_model_region_code=model_region_code,
-            scheme_peril_code=scheme_peril_code,
-            scheme_model_region_code=scheme_model_region_code,
-        )
-        if validation_error:
-            raise IRPReferenceDataError(validation_error)
+            try:
+                output_profile_id = output_profile_response[0]['id']
+            except (KeyError, IndexError, TypeError) as e:
+                raise IRPReferenceDataError(
+                    f"Failed to extract output profile ID for '{output_profile_name}': {e}"
+                ) from e
+
+            # Use perilCode and modelRegionCode from model profile to filter the correct event rate scheme
+            event_rate_scheme_id = None
+            scheme_peril_code = None
+            scheme_model_region_code = None
+            if event_rate_scheme_name:
+                event_rate_scheme_response = self.reference_data_manager.get_event_rate_scheme_by_name(
+                    event_rate_scheme_name,
+                    peril_code=model_peril_code,
+                    model_region_code=model_region_code
+                )
+                if event_rate_scheme_response.get('count', 0) == 0:
+                    filter_info = f" (perilCode={model_peril_code}, modelRegionCode={model_region_code})" if model_peril_code or model_region_code else ""
+                    raise IRPReferenceDataError(f"Event rate scheme '{event_rate_scheme_name}'{filter_info} not found")
+                try:
+                    event_rate_scheme = event_rate_scheme_response['items'][0]
+                    event_rate_scheme_id = event_rate_scheme['eventRateSchemeId']
+                    scheme_peril_code = event_rate_scheme.get('perilCode')
+                    scheme_model_region_code = event_rate_scheme.get('modelRegionCode')
+                except (KeyError, IndexError, TypeError) as e:
+                    raise IRPReferenceDataError(
+                        f"Failed to extract event rate scheme ID for '{event_rate_scheme_name}': {e}"
+                    ) from e
+
+            # Event rate scheme is required for DLM analyses but optional for HD
+            validation_error = validate_event_rate_scheme_settings(
+                software_version_code,
+                scheme_provided=bool(event_rate_scheme_name),
+                profile_peril_code=model_peril_code,
+                profile_model_region_code=model_region_code,
+                scheme_peril_code=scheme_peril_code,
+                scheme_model_region_code=scheme_model_region_code,
+            )
+            if validation_error:
+                raise IRPReferenceDataError(validation_error)
 
         # Look up tag IDs
         if tag_names:
@@ -416,7 +543,8 @@ class AnalysisManager:
             "numMaxLossEvent": num_max_loss_event
         }
 
-        # Only include eventRateSchemeId for DLM analyses
+        # eventRateSchemeId is sent whenever a scheme id was given or resolved,
+        # on HD as well as DLM
         if event_rate_scheme_id is not None:
             settings["eventRateSchemeId"] = event_rate_scheme_id
 
@@ -749,6 +877,16 @@ class AnalysisManager:
                 "list of valid perspective codes; see PERSPECTIVE_CODES in "
                 "irp_integration/constants.py"
             )
+
+    def _validate_analysis_type(self, analysis_type: Optional[str]) -> str:
+        """Validate analysis type is one of the allowed values and return it."""
+        if analysis_type not in ANALYSIS_TYPES:
+            raise IRPValidationError(
+                f"Invalid analysis_type '{analysis_type}'. Not in the list of "
+                "valid analysis types; see ANALYSIS_TYPES in "
+                "irp_integration/constants.py"
+            )
+        return analysis_type
 
     def _validate_exposure_resource_type(self, exposure_resource_type: str) -> None:
         """Validate exposure resource type is one of the allowed values."""
