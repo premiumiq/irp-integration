@@ -313,7 +313,8 @@ class Client:
                         f"(status {status_code}){safe_msg}"
                     ) from e
                 raise IRPAPIError(
-                    f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}"
+                    f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}",
+                    status_code=status_code,
                 ) from e
             except requests.RequestException as e:
                 logger.error("Request error: %s %s — %s", method, url, e)

@@ -4689,6 +4689,24 @@ API request or response errors.
 
 Raised when HTTP requests fail, responses are malformed, or API returns unexpected status codes.
 
+**Attributes:**
+
+status_code: The HTTP status of the failed response. Set only when
+
+an HTTP response came back; ``None`` for connection errors, timeouts, configuration errors and malformed responses.
+
+#### `__init__`
+
+```python
+def __init__(self, message: str, status_code: Optional[int] = None)
+```
+
+Initialize the error with an optional HTTP status code.
+
+**Arguments:**
+ - **message:**  Error message
+ - **status_code:**  HTTP status of the failed response, if one came back
+
 ### `class IRPAuthenticationError`
 
 *Bases:* `IRPIntegrationError`

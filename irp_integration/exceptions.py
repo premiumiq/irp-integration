@@ -5,7 +5,7 @@ These exceptions provide clear, structured error handling for different
 failure scenarios when interacting with Moody's Risk Modeler API.
 """
 
-from typing import Sequence, TYPE_CHECKING
+from typing import Optional, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .grouping import GroupingProblem
@@ -22,8 +22,22 @@ class IRPAPIError(IRPIntegrationError):
 
     Raised when HTTP requests fail, responses are malformed,
     or API returns unexpected status codes.
+
+    Attributes:
+        status_code: The HTTP status of the failed response. Set only when
+            an HTTP response came back; ``None`` for connection errors,
+            timeouts, configuration errors and malformed responses.
     """
-    pass
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        """Initialize the error with an optional HTTP status code.
+
+        Args:
+            message: Error message
+            status_code: HTTP status of the failed response, if one came back
+        """
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class IRPAuthenticationError(IRPIntegrationError):
