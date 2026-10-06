@@ -561,7 +561,10 @@ class AnalysisManager:
             logger.info("Analysis job submitted — job ID: %s", job_id)
             return int(job_id), data
         except Exception as e:
-            raise IRPAPIError(f"Failed to submit analysis job '{job_name}' for portfolio {portfolio_name}: {e}")
+            raise IRPAPIError(
+                f"Failed to submit analysis job '{job_name}' for portfolio {portfolio_name}: {e}",
+                status_code=e.status_code if isinstance(e, IRPAPIError) else None,
+            )
 
 
     def get_analysis_job(self, job_id: int) -> Dict[str, Any]:
