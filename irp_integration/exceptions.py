@@ -46,8 +46,24 @@ class IRPAuthenticationError(IRPIntegrationError):
 
     Raised when bearer-token login or token refresh fails (bad
     credentials, missing access token in the response, etc.).
+
+    Attributes:
+        status_code: The HTTP status of the failed response. ``401`` when
+            ``Client.request()`` still gets a ``401`` after a re-login, or the
+            login response status when ``_login()`` gets a non-OK response.
+            ``None`` for login request errors, a non-JSON login body and a
+            missing ``accessToken``.
     """
-    pass
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        """Initialize the error with an optional HTTP status code.
+
+        Args:
+            message: Error message
+            status_code: HTTP status of the failed response, if one came back
+        """
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class IRPValidationError(IRPIntegrationError):
