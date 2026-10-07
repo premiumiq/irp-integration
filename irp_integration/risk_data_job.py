@@ -52,7 +52,10 @@ class RiskDataJobManager:
             response = self.client.request('GET', GET_RISK_DATA_JOB_BY_ID.format(job_id=job_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get job status for job ID {job_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get job status for job ID {job_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def search_risk_data_jobs(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
@@ -81,7 +84,10 @@ class RiskDataJobManager:
             response = self.client.request('GET', SEARCH_RISK_DATA_JOBS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search risk data jobs : {e}")
+            raise IRPAPIError(
+                f"Failed to search risk data jobs : {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
 
     def poll_risk_data_job_to_completion(

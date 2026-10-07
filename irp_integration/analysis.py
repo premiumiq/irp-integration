@@ -160,7 +160,10 @@ class AnalysisManager:
             response = self.client.request('GET', GET_ANALYSIS_RESULT.format(analysisId=analysis_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def submit_portfolio_analysis_jobs(self, analysis_data_list: List[Dict[str, Any]]) -> List[int]:
@@ -430,7 +433,10 @@ class AnalysisManager:
                     filter=filter_statement
                 )
             except Exception as e:
-                raise IRPAPIError(f"Failed to search treaties with names {treaty_names}: {e}")
+                raise IRPAPIError(
+                    f"Failed to search treaties with names {treaty_names}: {e}",
+                    status_code=getattr(e, 'status_code', None),
+                ) from e
 
             if len(treaties_response) != len(treaty_names):
                 raise IRPAPIError(f"Expected {len(treaty_names)} treaties, found {len(treaties_response)}")
@@ -523,7 +529,10 @@ class AnalysisManager:
             try:
                 tag_ids = self.reference_data_manager.get_tag_ids_from_tag_names(tag_names)
             except IRPAPIError as e:
-                raise IRPAPIError(f"Failed to get tag ids for tag names {tag_names}: {e}")
+                raise IRPAPIError(
+                    f"Failed to get tag ids for tag names {tag_names}: {e}",
+                    status_code=e.status_code,
+                ) from e
         else:
             tag_ids = []
 
@@ -563,8 +572,8 @@ class AnalysisManager:
         except Exception as e:
             raise IRPAPIError(
                 f"Failed to submit analysis job '{job_name}' for portfolio {portfolio_name}: {e}",
-                status_code=e.status_code if isinstance(e, IRPAPIError) else None,
-            )
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_analysis_job(self, job_id: int) -> Dict[str, Any]:
@@ -587,7 +596,10 @@ class AnalysisManager:
             response = self.client.request('GET', GET_ANALYSIS_JOB.format(jobId=job_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get analysis job status for job ID {job_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get analysis job status for job ID {job_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_analysis_job_to_completion(
@@ -665,7 +677,10 @@ class AnalysisManager:
             response = self.client.request('GET', SEARCH_ANALYSIS_JOBS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search analysis jobs : {e}")
+            raise IRPAPIError(
+                f"Failed to search analysis jobs : {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_analysis_job_batch_to_completion(
@@ -761,7 +776,10 @@ class AnalysisManager:
             response = self.client.request('GET', SEARCH_ANALYSIS_RESULTS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search analysis results : {e}")
+            raise IRPAPIError(
+                f"Failed to search analysis results : {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_analyses_paginated(self, filter: str = "") -> List[Dict[str, Any]]:
         """
@@ -834,7 +852,10 @@ class AnalysisManager:
             self.client.request('DELETE', DELETE_ANALYSIS.format(analysisId=analysis_id))
             logger.info("Deleted analysis ID: %s", analysis_id)
         except Exception as e:
-            raise IRPAPIError(f"Failed to delete analysis : {e}")
+            raise IRPAPIError(
+                f"Failed to delete analysis : {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_analysis_by_app_analysis_id(self, app_analysis_id: int) -> Dict[str, Any]:
         """
@@ -870,7 +891,10 @@ class AnalysisManager:
         except IRPAPIError:
             raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to get analysis by appAnalysisId {app_analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get analysis by appAnalysisId {app_analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def _validate_perspective_code(self, perspective_code: str) -> None:
         """Validate perspective code is one of the allowed values."""
@@ -961,7 +985,10 @@ class AnalysisManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get ELT for analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get ELT for analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_ep(
         self,
@@ -1011,7 +1038,10 @@ class AnalysisManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get EP metrics for analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get EP metrics for analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_stats(
         self,
@@ -1061,7 +1091,10 @@ class AnalysisManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get statistics for analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get statistics for analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_plt(
         self,
@@ -1125,7 +1158,10 @@ class AnalysisManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get PLT for analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get PLT for analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_regions(
         self,
@@ -1170,7 +1206,10 @@ class AnalysisManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get regions for analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get regions for analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_analysis_treaties(
         self,
@@ -1203,7 +1242,10 @@ class AnalysisManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get treaties for analysis {analysis_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get treaties for analysis {analysis_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_analysis_treaties_paginated(self, analysis_id: int) -> List[Dict[str, Any]]:
         """
@@ -1403,4 +1445,7 @@ class AnalysisManager:
         except IRPAPIError:
             raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to submit analysis export job: {e}")
+            raise IRPAPIError(
+                f"Failed to submit analysis export job: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e

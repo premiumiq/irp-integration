@@ -94,7 +94,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_MODEL_PROFILES)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get model profiles: {e}")
+            raise IRPAPIError(
+                f"Failed to get model profiles: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_model_profile_by_name(self, profile_name: str) -> Dict[str, Any]:
@@ -119,7 +122,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_MODEL_PROFILES, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get model profile '{profile_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to get model profile '{profile_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_output_profiles(self) -> List[Dict[str, Any]]:
@@ -136,7 +142,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_OUTPUT_PROFILES)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get output profiles: {e}")
+            raise IRPAPIError(
+                f"Failed to get output profiles: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_output_profile_by_name(self, profile_name: str) -> List[Dict[str, Any]]:
@@ -161,7 +170,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_OUTPUT_PROFILES, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get output profile '{profile_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to get output profile '{profile_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_event_rate_schemes(self) -> Dict[str, Any]:
@@ -180,7 +192,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_EVENT_RATE_SCHEME, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get event rate schemes: {e}")
+            raise IRPAPIError(
+                f"Failed to get event rate schemes: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_event_rate_scheme_by_name(
@@ -223,7 +238,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_EVENT_RATE_SCHEME, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get event rate scheme '{scheme_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to get event rate scheme '{scheme_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def search_currencies(
@@ -274,7 +292,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', SEARCH_CURRENCIES, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search currencies: {e}")
+            raise IRPAPIError(
+                f"Failed to search currencies: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def search_currency_schemes(
@@ -325,7 +346,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', SEARCH_CURRENCY_SCHEMES, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search currency schemes: {e}")
+            raise IRPAPIError(
+                f"Failed to search currency schemes: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def search_currency_scheme_vintages(
@@ -376,7 +400,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', SEARCH_CURRENCY_SCHEME_VINTAGES, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search currency scheme vintages: {e}")
+            raise IRPAPIError(
+                f"Failed to search currency scheme vintages: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_latest_currency_scheme_vintage(self) -> Dict[str, Any]:
@@ -471,7 +498,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', GET_TAGS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get tag '{tag_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to get tag '{tag_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def create_tag(self, tag_name: str) -> Dict[str, str]:
@@ -499,7 +529,10 @@ class ReferenceDataManager:
             logger.info("Tag created — ID: %s", tag_id)
             return {"id": tag_id}
         except Exception as e:
-            raise IRPAPIError(f"Failed to create tag '{tag_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to create tag '{tag_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_tag_ids_from_tag_names(self, tag_names: List[str]) -> List[int]:
@@ -579,7 +612,10 @@ class ReferenceDataManager:
         except IRPAPIError:
             raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to get simulation sets: {e}") from e
+            raise IRPAPIError(
+                f"Failed to get simulation sets: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_simulation_set_by_event_rate_scheme_id(self, event_rate_scheme_id: int) -> Dict[str, Any]:
         """
@@ -748,7 +784,10 @@ class ReferenceDataManager:
         except IRPAPIError:
             raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to get PET metadata: {e}") from e
+            raise IRPAPIError(
+                f"Failed to get PET metadata: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_pet_metadata_by_id(self, pet_id: int) -> Dict[str, Any]:
         """
@@ -844,7 +883,10 @@ class ReferenceDataManager:
             response = self.client.request('GET', SEARCH_SOFTWARE_MODEL_VERSION_MAP, params=params)
             return response.json().get('items', [])
         except Exception as e:
-            raise IRPAPIError(f"Failed to get software model version map: {e}")
+            raise IRPAPIError(
+                f"Failed to get software model version map: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_model_version_by_engine_version(self, engine_version: str) -> str:
         """

@@ -265,7 +265,10 @@ class RDMManager:
                 'http_request_body': data
             }
         except Exception as e:
-            raise IRPAPIError(f"Failed to submit rdm export job : {e}")
+            raise IRPAPIError(
+                f"Failed to submit rdm export job : {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_rdm_export_job(self, job_id: int) -> Dict[str, Any]:
@@ -288,7 +291,10 @@ class RDMManager:
             response = self.client.request('GET', GET_EXPORT_JOB.format(jobId=job_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get rdm export job status for job ID {job_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get rdm export job status for job ID {job_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_rdm_export_job_to_completion(
@@ -433,7 +439,10 @@ class RDMManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search databases: {e}")
+            raise IRPAPIError(
+                f"Failed to search databases: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_databases_paginated(self, server_name: str, filter: str = "") -> List[Dict[str, Any]]:
         """
@@ -500,7 +509,10 @@ class RDMManager:
 
             return job_id
         except Exception as e:
-            raise IRPAPIError(f"Failed to delete RDM '{rdm_name}': {e}") from e
+            raise IRPAPIError(
+                f"Failed to delete RDM '{rdm_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def get_databridge_job(self, job_id: str) -> str:
         """
@@ -525,7 +537,10 @@ class RDMManager:
             # API returns a string directly
             return response.text
         except Exception as e:
-            raise IRPAPIError(f"Failed to get databridge job status for '{job_id}': {e}") from e
+            raise IRPAPIError(
+                f"Failed to get databridge job status for '{job_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def poll_delete_rdm_job_to_completion(
             self,
@@ -644,7 +659,8 @@ class RDMManager:
             return response.json()
         except Exception as e:
             raise IRPAPIError(
-                f"Failed to add group access to RDM '{database_name}': {e}"
+                f"Failed to add group access to RDM '{database_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
             ) from e
     
     def search_imported_rdms(self, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
@@ -675,7 +691,10 @@ class RDMManager:
             response = self.client.request('GET', SEARCH_IMPORTED_RDMS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search imported RDMs: {e}") from e
+            raise IRPAPIError(
+                f"Failed to search imported RDMs: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
     def submit_rdm_import_job(
         self,

@@ -124,7 +124,10 @@ class ImportJobManager:
             response = self.client.request('GET', GET_IMPORT_JOB.format(jobId=job_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get import job status for job ID {job_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get import job status for job ID {job_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def poll_import_job_to_completion(
         self,

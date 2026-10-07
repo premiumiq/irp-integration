@@ -71,7 +71,8 @@ class ExportJobManager:
             raise
         except Exception as e:
             raise IRPAPIError(
-                f"Failed to get export job status for job ID {job_id}: {e}"
+                f"Failed to get export job status for job ID {job_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
             ) from e
 
     def poll_export_job_to_completion(
@@ -214,7 +215,8 @@ class ExportJobManager:
                 raise
             except IRPAPIError as e:
                 raise IRPAPIError(
-                    f"Failed to download export results for job ID {job_id}: {e}"
+                    f"Failed to download export results for job ID {job_id}: {e}",
+                    status_code=e.status_code,
                 ) from e
 
             content_type = response.headers.get('Content-Type', '')

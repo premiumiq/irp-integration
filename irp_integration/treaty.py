@@ -76,7 +76,10 @@ class TreatyManager:
             response = self.client.request('GET', SEARCH_TREATIES.format(exposureId=exposure_id), params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search treaties: {e}")
+            raise IRPAPIError(
+                f"Failed to search treaties: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_treaties_paginated(self, exposure_id: int, filter: str = '') -> List[Dict[str, Any]]:
         """
@@ -287,7 +290,10 @@ class TreatyManager:
         except IRPReferenceDataError:
             raise
         except Exception as e:
-            raise IRPAPIError(f"Failed to retrieve cedants for EDM '{edm_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to retrieve cedants for EDM '{edm_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
         logger.debug("Looking up currency '%s'", currency_name)
         try:
@@ -341,7 +347,10 @@ class TreatyManager:
         except KeyError as e:
             raise IRPAPIError(f"Missing expected LOB field during treaty creation: {e}")
         except Exception as e:
-            raise IRPAPIError(f"Failed to create treaty '{treaty_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to create treaty '{treaty_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
 
     def create_treaty_lob(self, exposure_id: int, treaty_id: int, lob_id: int, lobName: str) -> int:
@@ -380,4 +389,7 @@ class TreatyManager:
             created_lob_id = extract_id_from_location_header(response, "treaty LOB creation")
             return int(created_lob_id)
         except Exception as e:
-            raise IRPAPIError(f"Failed to create treaty LOB '{lobName}': {e}")
+            raise IRPAPIError(
+                f"Failed to create treaty LOB '{lobName}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e

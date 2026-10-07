@@ -347,7 +347,10 @@ class Client:
             response = self.request('GET', GET_WORKFLOW_BY_ID.format(workflow_id=workflow_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get workflow status for workflow ID {workflow_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get workflow status for workflow ID {workflow_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_workflow_to_completion(
