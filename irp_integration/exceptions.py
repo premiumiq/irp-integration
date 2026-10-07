@@ -5,15 +5,29 @@ These exceptions provide clear, structured error handling for different
 failure scenarios when interacting with Moody's Risk Modeler API.
 """
 
-from typing import Sequence, TYPE_CHECKING
+from typing import Optional, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .grouping import GroupingProblem
 
 
 class IRPIntegrationError(Exception):
-    """Base exception for all IRP integration errors."""
-    pass
+    """
+    Base exception for all IRP integration errors.
+
+    ``status_code`` holds the HTTP status of the failed response, or ``None``
+    when no response came back or the error does not concern an HTTP response.
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        """Initialize the error with an optional HTTP status code.
+
+        Args:
+            message: Error message
+            status_code: HTTP status of the failed response, if one came back
+        """
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class IRPAPIError(IRPIntegrationError):
@@ -22,8 +36,10 @@ class IRPAPIError(IRPIntegrationError):
 
     Raised when HTTP requests fail, responses are malformed,
     or API returns unexpected status codes.
+
+    ``status_code`` is set when an HTTP response came back. It is ``None`` for
+    connection errors, timeouts, configuration errors and malformed responses.
     """
-    pass
 
 
 class IRPAuthenticationError(IRPIntegrationError):
@@ -32,8 +48,12 @@ class IRPAuthenticationError(IRPIntegrationError):
 
     Raised when bearer-token login or token refresh fails (bad
     credentials, missing access token in the response, etc.).
+
+    ``status_code`` is ``401`` when ``Client.request()`` still gets a ``401``
+    after re-logging in. It is the login response's status when the bearer
+    login gets a non-OK response. It is ``None`` for login request errors, a
+    non-JSON login response and a missing ``accessToken``.
     """
-    pass
 
 
 class IRPValidationError(IRPIntegrationError):

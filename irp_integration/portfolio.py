@@ -63,7 +63,10 @@ class PortfolioManager:
             response = self.client.request('GET', GET_PORTFOLIO_BY_ID.format(exposureId=exposure_id, id=portfolio_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get portfolio details for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to get portfolio details for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
     def get_portfolio_metadata(self, exposure_id: int, portfolio_id: int) -> Dict[str, Any]:
         """
@@ -87,7 +90,10 @@ class PortfolioManager:
             response = self.client.request('GET', GET_PORTFOLIO_METADATA.format(exposureId=exposure_id, id=portfolio_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get portfolio metadata for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to get portfolio metadata for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
     
     def search_portfolios(self, exposure_id: int, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """
@@ -116,7 +122,10 @@ class PortfolioManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search portfolios for exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to search portfolios for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_portfolios_paginated(self, exposure_id: int, filter: str = "") -> List[Dict[str, Any]]:
         """
@@ -211,7 +220,10 @@ class PortfolioManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search portfolio accounts for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to search portfolio accounts for exposure ID '{exposure_id}' and portfolio ID '{portfolio_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_accounts_by_portfolio_paginated(
         self,
@@ -337,7 +349,10 @@ class PortfolioManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search accounts for exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to search accounts for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_accounts_paginated(
         self,
@@ -456,7 +471,10 @@ class PortfolioManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search policies for exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to search policies for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_policies_paginated(
         self,
@@ -584,7 +602,10 @@ class PortfolioManager:
             )
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search locations for exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to search locations for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_locations_paginated(
         self,
@@ -724,7 +745,8 @@ class PortfolioManager:
             )
         except Exception as e:
             raise IRPAPIError(
-                f"Failed to add filtered accounts to portfolio ID '{portfolio_id}' in exposure ID '{exposure_id}': {e}"
+                f"Failed to add filtered accounts to portfolio ID '{portfolio_id}' in exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
             ) from e
 
         if response.status_code != 200:
@@ -819,7 +841,8 @@ class PortfolioManager:
             )
         except Exception as e:
             raise IRPAPIError(
-                f"Failed to manage accounts on portfolio ID '{portfolio_id}' in exposure ID '{exposure_id}': {e}"
+                f"Failed to manage accounts on portfolio ID '{portfolio_id}' in exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
             ) from e
 
         if response.status_code != 200:
@@ -973,7 +996,10 @@ class PortfolioManager:
             logger.info("Portfolio created — ID: %s", portfolio_id)
             return int(portfolio_id), data
         except Exception as e:
-            raise IRPAPIError(f"Failed to create portfolio '{portfolio_name}' in exposure id '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to create portfolio '{portfolio_name}' in exposure id '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def submit_geohaz_jobs(self, geohaz_data_list: List[Dict[str, Any]]) -> List[int]:
@@ -1115,7 +1141,10 @@ class PortfolioManager:
             logger.info("GeoHaz job submitted — job ID: %s", job_id)
             return int(job_id), data
         except Exception as e:
-            raise IRPAPIError(f"Failed to execute geohaz for portfolio '{portfolio_uri}': {e}")
+            raise IRPAPIError(
+                f"Failed to execute geohaz for portfolio '{portfolio_uri}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
     
     def get_geohaz_job(self, job_id: int) -> Dict[str, Any]:
@@ -1138,7 +1167,10 @@ class PortfolioManager:
             response = self.client.request('GET', GET_GEOHAZ_JOB.format(jobId=job_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get geohaz job status for job ID {job_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get geohaz job status for job ID {job_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_geohaz_job_to_completion(

@@ -212,7 +212,8 @@ class Client:
             safe_msg = self._safe_server_msg(response)
             logger.error("Bearer login failed (status %s)%s", response.status_code, safe_msg)
             raise IRPAuthenticationError(
-                f"Bearer login failed (status {response.status_code}){safe_msg}"
+                f"Bearer login failed (status {response.status_code}){safe_msg}",
+                status_code=response.status_code,
             )
 
         try:
@@ -310,10 +311,12 @@ class Client:
                     # authentication failure, so surface it as one.
                     raise IRPAuthenticationError(
                         f"Bearer authentication failed after re-login: {method} {url} "
-                        f"(status {status_code}){safe_msg}"
+                        f"(status {status_code}){safe_msg}",
+                        status_code=status_code,
                     ) from e
                 raise IRPAPIError(
-                    f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}"
+                    f"HTTP request failed: {method} {url} (status {status_code}){safe_msg}",
+                    status_code=status_code,
                 ) from e
             except requests.RequestException as e:
                 logger.error("Request error: %s %s — %s", method, url, e)
@@ -344,7 +347,10 @@ class Client:
             response = self.request('GET', GET_WORKFLOW_BY_ID.format(workflow_id=workflow_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get workflow status for workflow ID {workflow_id}: {e}")
+            raise IRPAPIError(
+                f"Failed to get workflow status for workflow ID {workflow_id}: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_workflow_to_completion(

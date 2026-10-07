@@ -1129,7 +1129,8 @@ class GroupingManager:
             raise
         except Exception as exc:
             raise IRPAPIError(
-                f"Failed to submit analysis group '{settings.analysis_name}': {exc}"
+                f"Failed to submit analysis group '{settings.analysis_name}': {exc}",
+                status_code=getattr(exc, 'status_code', None),
             ) from exc
         return GroupingSubmission(job_id=job_id, request_body=request_body)
 
@@ -1156,7 +1157,8 @@ class GroupingManager:
             raise
         except Exception as exc:
             raise IRPAPIError(
-                f"Failed to get analysis grouping job status for job ID {job_id}: {exc}"
+                f"Failed to get analysis grouping job status for job ID {job_id}: {exc}",
+                status_code=getattr(exc, 'status_code', None),
             ) from exc
 
     @staticmethod

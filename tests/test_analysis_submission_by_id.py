@@ -19,7 +19,7 @@ from unittest.mock import Mock
 import pytest
 
 from irp_integration.constants import CREATE_ANALYSIS_JOB, SEARCH_ANALYSIS_RESULTS
-from irp_integration.exceptions import IRPValidationError
+from irp_integration.exceptions import IRPAPIError, IRPAuthenticationError, IRPValidationError
 
 
 # Invented names. Nothing here may name a real EDM, portfolio or tenant: this
@@ -99,6 +99,58 @@ def test_id_path_posts_ids_without_reference_lookups(make_analysis_manager, resp
         '/platform/riskdata/v1/exposures/42/portfolios',
         CREATE_ANALYSIS_JOB,
     ], "the id path must not request model profiles, output profiles or schemes"
+
+
+def test_a_rejected_post_keeps_its_http_status(make_analysis_manager, response):
+    rejected = IRPAPIError("HTTP request failed (status 400)", status_code=400)
+    manager, _, _ = make_analysis_manager(
+        responses=[
+            response(200, json_body=[]),
+            response(200, json_body=[{"uri": PORTFOLIO_URI, "portfolioId": 7}]),
+            rejected,
+        ],
+        edms=[{"exposureId": 42}],
+    )
+
+    with pytest.raises(IRPAPIError) as excinfo:
+        manager.submit_portfolio_analysis_job(
+            edm_name=EDM_NAME,
+            portfolio_name=PORTFOLIO_NAME,
+            job_name=JOB_NAME,
+            currency=CURRENCY,
+            model_profile_id=MODEL_PROFILE_ID,
+            output_profile_id=OUTPUT_PROFILE_ID,
+            event_rate_scheme_id=EVENT_RATE_SCHEME_ID,
+            analysis_type="DLM",
+        )
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.__cause__ is rejected
+
+
+def test_a_post_rejected_by_bearer_auth_keeps_the_401(make_analysis_manager, response):
+    manager, _, _ = make_analysis_manager(
+        responses=[
+            response(200, json_body=[]),
+            response(200, json_body=[{"uri": PORTFOLIO_URI, "portfolioId": 7}]),
+            IRPAuthenticationError("Bearer authentication failed after re-login", status_code=401),
+        ],
+        edms=[{"exposureId": 42}],
+    )
+
+    with pytest.raises(IRPAPIError) as excinfo:
+        manager.submit_portfolio_analysis_job(
+            edm_name=EDM_NAME,
+            portfolio_name=PORTFOLIO_NAME,
+            job_name=JOB_NAME,
+            currency=CURRENCY,
+            model_profile_id=MODEL_PROFILE_ID,
+            output_profile_id=OUTPUT_PROFILE_ID,
+            event_rate_scheme_id=EVENT_RATE_SCHEME_ID,
+            analysis_type="DLM",
+        )
+
+    assert excinfo.value.status_code == 401
 
 
 def test_model_profile_id_without_analysis_type_raises(make_analysis_manager, response):

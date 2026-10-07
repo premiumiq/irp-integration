@@ -134,7 +134,10 @@ class EDMManager:
             response = self.client.request('GET', SEARCH_DATABASE_SERVERS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search database servers: {e}")
+            raise IRPAPIError(
+                f"Failed to search database servers: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def search_exposure_sets(self, filter: str = "") -> List[Dict[str, Any]]:
@@ -154,7 +157,10 @@ class EDMManager:
             response = self.client.request('GET', SEARCH_EXPOSURE_SETS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search exposure sets: {e}")
+            raise IRPAPIError(
+                f"Failed to search exposure sets: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
     
     def create_exposure_set(self, name: str) -> int:
@@ -174,7 +180,10 @@ class EDMManager:
             exposure_set_id = extract_id_from_location_header(response, "exposure set creation")
             return int(exposure_set_id)
         except Exception as e:
-            raise IRPAPIError(f"Failed to create exposure set '{name}': {e}")
+            raise IRPAPIError(
+                f"Failed to create exposure set '{name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_or_create_exposure_set(self, name: str) -> int:
@@ -227,7 +236,10 @@ class EDMManager:
             response = self.client.request('GET', SEARCH_EDMS, params=params)
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to search EDMs: {e}")
+            raise IRPAPIError(
+                f"Failed to search EDMs: {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
     def search_edms_paginated(self, filter: str = "") -> List[Dict[str, Any]]:
         """
@@ -298,7 +310,10 @@ class EDMManager:
             logger.info("EDM creation job submitted — job ID: %s", job_id)
             return int(job_id), data
         except Exception as e:
-            raise IRPAPIError(f"Failed to create EDM '{edm_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to create EDM '{edm_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def submit_upgrade_edm_data_version_jobs(self, edm_data_list: List[Dict[str, Any]]) -> List[int]:
@@ -376,7 +391,10 @@ class EDMManager:
             job_id = extract_id_from_location_header(response, "EDM data version upgrade")
             return int(job_id), data
         except Exception as e:
-            raise IRPAPIError(f"Failed to upgrade EDM data version for EDM '{edm_name}': {e}")
+            raise IRPAPIError(
+                f"Failed to upgrade EDM data version for EDM '{edm_name}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def poll_data_version_upgrade_job_batch_to_completion(
@@ -496,7 +514,10 @@ class EDMManager:
             job_id = extract_id_from_location_header(response, "EDM deletion")
             return int(job_id)
         except Exception as e:
-            raise IRPAPIError(f"Failed to delete EDM with exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to delete EDM with exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_cedants_by_edm(self, exposure_id: int) -> List[Dict[str, Any]]:
@@ -518,7 +539,10 @@ class EDMManager:
             response = self.client.request('GET', GET_CEDANTS.format(exposureId=exposure_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get cedants for exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to get cedants for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
 
 
     def get_lobs_by_edm(self, exposure_id: int) -> List[Dict[str, Any]]:
@@ -540,7 +564,10 @@ class EDMManager:
             response = self.client.request('GET', GET_LOBS.format(exposureId=exposure_id))
             return response.json()
         except Exception as e:
-            raise IRPAPIError(f"Failed to get LOBs for exposure ID '{exposure_id}': {e}")
+            raise IRPAPIError(
+                f"Failed to get LOBs for exposure ID '{exposure_id}': {e}",
+                status_code=getattr(e, 'status_code', None),
+            ) from e
         
 
     def submit_edm_import_job(
