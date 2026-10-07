@@ -4681,19 +4681,7 @@ These exceptions provide clear, structured error handling for different failure 
 
 Base exception for all IRP integration errors.
 
-### `class IRPAPIError`
-
-*Bases:* `IRPIntegrationError`
-
-API request or response errors.
-
-Raised when HTTP requests fail, responses are malformed, or API returns unexpected status codes.
-
-**Attributes:**
-
-status_code: The HTTP status of the failed response. Set only when
-
-an HTTP response came back; ``None`` for connection errors, timeouts, configuration errors and malformed responses.
+``status_code`` holds the HTTP status of the failed response, or ``None`` when no response came back or the error does not concern an HTTP response.
 
 #### `__init__`
 
@@ -4706,6 +4694,16 @@ Initialize the error with an optional HTTP status code.
 **Arguments:**
  - **message:**  Error message
  - **status_code:**  HTTP status of the failed response, if one came back
+
+### `class IRPAPIError`
+
+*Bases:* `IRPIntegrationError`
+
+API request or response errors.
+
+Raised when HTTP requests fail, responses are malformed, or API returns unexpected status codes.
+
+``status_code`` is set when an HTTP response came back. It is ``None`` for connection errors, timeouts, configuration errors and malformed responses.
 
 ### `class IRPAuthenticationError`
 
@@ -4715,23 +4713,7 @@ Bearer-token authentication errors.
 
 Raised when bearer-token login or token refresh fails (bad credentials, missing access token in the response, etc.).
 
-**Attributes:**
-
-status_code: The HTTP status of the failed response. ``401`` when
-
-``Client.request()`` still gets a ``401`` after a re-login, or the login response status when ``_login()`` gets a non-OK response. ``None`` for login request errors, a non-JSON login body and a missing ``accessToken``.
-
-#### `__init__`
-
-```python
-def __init__(self, message: str, status_code: Optional[int] = None)
-```
-
-Initialize the error with an optional HTTP status code.
-
-**Arguments:**
- - **message:**  Error message
- - **status_code:**  HTTP status of the failed response, if one came back
+``status_code`` is ``401`` when ``Client.request()`` still gets a ``401`` after re-logging in. It is the login response's status when the bearer login gets a non-OK response. It is ``None`` for login request errors, a non-JSON login response and a missing ``accessToken``.
 
 ### `class IRPValidationError`
 
